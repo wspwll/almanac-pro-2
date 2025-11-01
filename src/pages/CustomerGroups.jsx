@@ -14,6 +14,8 @@ import {
 } from "recharts";
 import suvPoints from "./data/suv_points.json";
 import puPoints from "./data/pu_points.json";
+import midSuvPoints from "./data/mid_suv_points.json";
+import largePuPoints from "./data/large_pu_points.json";
 import demosMapping from "./data/demos-mapping.json";
 import codeToTextMapRaw from "./data/code-to-text-map.json";
 import { ComposableMap, Geographies, Geography } from "react-simple-maps";
@@ -619,6 +621,8 @@ function useAnimationToken(deps) {
 
 const CG_SUV_COLOR = "#FF5432";
 const CG_PU_COLOR = "#1F6FFF";
+const SEG_MID_SUV_COLOR = "#F97316"; // orange-ish
+const SEG_LARGE_PU_COLOR = "#0EA5E9"; // sky-ish
 
 const chipFixedCG = (active, baseColor, panelColor, borderColor, textColor) => {
   const alpha = isDarkHex(panelColor) ? 0.22 : 0.14;
@@ -640,16 +644,42 @@ const chipFixedCG = (active, baseColor, panelColor, borderColor, textColor) => {
 
 export default function CustomerGroups({ COLORS: THEME, useStyles }) {
   const [datasetMode, setDatasetMode] = useState("CORE");
-  const [group, setGroup] = useState("SUV");
-  const dataPoints =
-    datasetMode === "CORE" ? (group === "SUV" ? suvPoints : puPoints) : [];
 
+  // group values:
+  // CORE: "SUV" | "Pickup"
+  // SEGMENTS: "MidSUV" | "LargePickup"
+  const [group, setGroup] = useState("SUV");
+
+  // Ensure sensible default group per dataset mode
   useEffect(() => {
     setZoomCluster(null);
     setCenterT(0);
     setSelectedStateName(null);
     setDemoModel(null);
+    setGroup((prev) => {
+      if (datasetMode === "CORE") {
+        return prev === "SUV" || prev === "Pickup" ? prev : "SUV";
+      } else {
+        return prev === "MidSUV" || prev === "LargePickup" ? prev : "MidSUV";
+      }
+    });
   }, [datasetMode]);
+
+  // Choose source points by dataset + group
+  const dataPoints =
+    datasetMode === "CORE"
+      ? group === "SUV"
+        ? suvPoints
+        : group === "Pickup"
+        ? puPoints
+        : []
+      : datasetMode === "SEGMENTS"
+      ? group === "MidSUV"
+        ? midSuvPoints
+        : group === "LargePickup"
+        ? largePuPoints
+        : []
+      : [];
 
   const rows = useMemo(() => {
     const out = [];
@@ -1203,6 +1233,16 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
 
   const activePriceSampleSize = priceBaseRows.length;
 
+  // Helper labels for titles
+  const groupTitle =
+    datasetMode === "CORE"
+      ? group === "Pickup"
+        ? "Core Pickup Clusters"
+        : "Core SUV Clusters"
+      : group === "LargePickup"
+      ? "Segments — Large Pickups"
+      : "Segments — Mid SUVs";
+
   return (
     <div
       style={{
@@ -1314,64 +1354,92 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
             );
           })()}
 
+          {/* Body style / segment toggles */}
           {datasetMode === "CORE" ? (
-            <>
-              <div style={{ marginTop: 6 }}>
-                <div
-                  style={{ color: THEME.muted, marginTop: 8, marginBottom: 12 }}
-                >
-                  Choose body style
-                </div>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(2, max-content)",
-                    gap: 8,
-                    justifyContent: "start",
-                  }}
-                >
-                  <button
-                    onClick={() => setGroup("SUV")}
-                    style={chipFixedCG(
-                      group === "SUV",
-                      CG_SUV_COLOR,
-                      THEME.panel,
-                      THEME.border,
-                      THEME.text
-                    )}
-                  >
-                    SUV
-                  </button>
-
-                  <button
-                    onClick={() => setGroup("Pickup")}
-                    style={chipFixedCG(
-                      group === "Pickup",
-                      CG_PU_COLOR,
-                      THEME.panel,
-                      THEME.border,
-                      THEME.text
-                    )}
-                  >
-                    Pickup
-                  </button>
-                </div>
+            <div style={{ marginTop: 6 }}>
+              <div
+                style={{ color: THEME.muted, marginTop: 8, marginBottom: 12 }}
+              >
+                Choose body style
               </div>
-            </>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(2, max-content)",
+                  gap: 8,
+                  justifyContent: "start",
+                }}
+              >
+                <button
+                  onClick={() => setGroup("SUV")}
+                  style={chipFixedCG(
+                    group === "SUV",
+                    CG_SUV_COLOR,
+                    THEME.panel,
+                    THEME.border,
+                    THEME.text
+                  )}
+                >
+                  SUV
+                </button>
+
+                <button
+                  onClick={() => setGroup("Pickup")}
+                  style={chipFixedCG(
+                    group === "Pickup",
+                    CG_PU_COLOR,
+                    THEME.panel,
+                    THEME.border,
+                    THEME.text
+                  )}
+                >
+                  Pickup
+                </button>
+              </div>
+            </div>
           ) : (
-            <div
-              style={{
-                marginTop: 4,
-                fontSize: 13,
-                color: THEME.muted,
-                border: `1px dashed ${THEME.border}`,
-                background: THEME.panel,
-                padding: "8px 10px",
-                borderRadius: 8,
-              }}
-            >
-              Segments dataset coming soon
+            <div style={{ marginTop: 6 }}>
+              <div
+                style={{ color: THEME.muted, marginTop: 8, marginBottom: 12 }}
+              >
+                Choose segment
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(2, max-content)",
+                  gap: 8,
+                  justifyContent: "start",
+                }}
+              >
+                <button
+                  onClick={() => setGroup("MidSUV")}
+                  style={chipFixedCG(
+                    group === "MidSUV",
+                    SEG_MID_SUV_COLOR,
+                    THEME.panel,
+                    THEME.border,
+                    THEME.text
+                  )}
+                >
+                  Mid SUVs
+                </button>
+
+                <button
+                  onClick={() => setGroup("LargePickup")}
+                  style={chipFixedCG(
+                    group === "LargePickup",
+                    SEG_LARGE_PU_COLOR,
+                    THEME.panel,
+                    THEME.border,
+                    THEME.text
+                  )}
+                >
+                  Large Pickups
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -1381,39 +1449,91 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
             Choose models
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "nowrap",
-              gap: 8,
-              overflowX: "auto",
-              whiteSpace: "nowrap",
-              paddingBottom: 10,
-            }}
-          >
-            {allModels.map((m) => {
-              const active = selectedModels.includes(m);
-              const baseColor = modelColors[m] || THEME.accent;
+          {/* When Segments → Mid SUVs: show a 10-per-row grid */}
+          {datasetMode === "SEGMENTS" && group === "MidSUV" ? (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(10, minmax(0, 1fr))",
+                gap: 8,
+                alignItems: "stretch",
+                marginBottom: 10,
+              }}
+            >
+              {allModels.map((m) => {
+                const active = selectedModels.includes(m);
+                const baseColor = modelColors[m] || THEME.accent;
+                return (
+                  <button
+                    key={m}
+                    onClick={() => toggleModel(m)}
+                    title={m}
+                    style={{
+                      // full-width grid cell
+                      width: "100%",
+                      textAlign: "center",
+                      // active/inactive visuals (aligned with your chip style)
+                      background: active
+                        ? `rgba(${hexToRgbStr(baseColor)}, ${
+                            isDarkHex(THEME.panel) ? 0.22 : 0.14
+                          })`
+                        : "transparent",
+                      color: THEME.text,
+                      border: `1px solid ${active ? baseColor : THEME.border}`,
+                      borderRadius: 8,
+                      padding: "6px 10px",
+                      cursor: "pointer",
+                      fontSize: 13,
+                      transition:
+                        "border-color 120ms ease, background-color 120ms ease, color 120ms ease",
+                      // avoid long names overflowing
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {m}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            // All other modes keep your existing horizontal chips
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "nowrap",
+                gap: 8,
+                overflowX: "auto",
+                whiteSpace: "nowrap",
+                paddingBottom: 10,
+              }}
+            >
+              {allModels.map((m) => {
+                const active = selectedModels.includes(m);
+                const baseColor = modelColors[m] || THEME.accent;
 
-              return (
-                <button
-                  key={m}
-                  onClick={() => toggleModel(m)}
-                  style={chipFixedCG(
-                    active,
-                    baseColor,
-                    THEME.panel,
-                    THEME.border,
-                    THEME.text
-                  )}
-                  title={m}
-                >
-                  {m}
-                </button>
-              );
-            })}
-          </div>
+                return (
+                  <button
+                    key={m}
+                    onClick={() => toggleModel(m)}
+                    style={chipFixedCG(
+                      active,
+                      baseColor,
+                      THEME.panel,
+                      THEME.border,
+                      THEME.text
+                    )}
+                    title={m}
+                  >
+                    {m}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
+          {/* Select/Clear buttons (unchanged) */}
           <div
             style={{ marginTop: 8, marginBottom: 20, display: "flex", gap: 8 }}
           >
@@ -1508,7 +1628,6 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {/* All button — same neutral theme as Core Set / Segments */}
             <button
               onClick={() => setZoomCluster(null)}
               style={{
@@ -1531,12 +1650,8 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
               All
             </button>
 
-            {[
-              { k: 1, color: "#1F77B4" },
-              { k: 2, color: "#FF7F0E" },
-              { k: 3, color: "#2CA02C" },
-              { k: 4, color: "#D62728" },
-            ].map(({ k, color }) => {
+            {[1, 2, 3, 4].map((k) => {
+              const color = FIXED_CLUSTER_COLORS[k];
               const active = zoomCluster === k;
               return (
                 <button
@@ -1620,7 +1735,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
               pointerEvents: "none",
             }}
           >
-            {group === "Pickup" ? "Core Pickup Clusters" : "Core SUV Clusters"}
+            {groupTitle}
           </div>
 
           <div
@@ -2529,7 +2644,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           </div>
         </div>
 
-        {/* Transaction Price (lock already present earlier) */}
+        {/* Transaction Price (lock) */}
         <div
           style={{
             gridColumn: "1 / -1",
@@ -2889,7 +3004,9 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                       ? group === "SUV"
                         ? "SUV"
                         : "Pickup"
-                      : "Segments";
+                      : group === "LargePickup"
+                      ? "Large Pickups"
+                      : "Mid SUVs";
                   return `${persona.title} — ${groupLabel}`;
                 })()}
               </div>
