@@ -346,25 +346,22 @@ function getPersonaForCluster(id) {
 
 const FIELD_GROUPS = {
   Demographics: [
-    "BLD_AGE_GRP",
-    "DEMO_EDUCATION",
-    "GENERATION_GRP",
-    "DEMO_GENDER1",
-    "BLD_HOBBY1_GRP",
-    "DEMO_INCOME",
-    "BLD_LIFESTAGE",
-    "DEMO_LOCATION",
-    "DEMO_MARITAL",
-    "DEMO_EMPLOY",
-    "BLD_CHILDREN",
-    "DEMO_EMPTY_NESTER",
+    "DEMO_GENDER1", // Gender
+    "BLD_AGE_GRP", // Age Group
+    "GENERATION_GRP", // Generation
+    "DEMO_MARITAL", // Marital Status
+    "BLD_CHILDREN", // Number of Children
+    "DEMO_LOCATION", // Location
+    "DEMO_EMPLOY", // Occupation
+    "DEMO_INCOME_BUCKET", // Income
+    "DEMO_EDUCATION", // Education
+    "BLD_HOBBY1_GRP", // Hobbies
   ],
   Financing: [
-    "FIN_PU_APR",
+    "FIN_PRICE_UNEDITED",
+    "BLD_FIN_TOTAL_MONPAY",
     "FIN_PU_DOWN_PAY",
     "FIN_PU_TRADE_IN",
-    "BLD_FIN_TOTAL_MONPAY",
-    "FIN_PRICE_UNEDITED",
     "FIN_LE_LENGTH",
     "FIN_PU_LENGTH",
     "C1_PL",
@@ -407,6 +404,72 @@ const FIELD_GROUPS = {
     "STATE_AUDIO",
     "STATE_MON_PAY",
     "STATE_SHOP_MANY",
+  ],
+};
+
+const VALUE_ORDER = {
+  DEMO_GENDER1: ["Male", "Female", "Other", "Unknown"],
+  BLD_AGE_GRP: [
+    "20 To 24",
+    "25 To 29",
+    "30 To 34",
+    "35 To 39",
+    "40 To 44",
+    "45 To 49",
+    "50 To 54",
+    "55 To 59",
+    "60 To 64",
+    "65 To 69",
+    "70 To 74",
+    "75 And Over",
+    "Unknown",
+  ],
+  GENERATION_GRP: [
+    "Gen Z (>1994)",
+    "Millennials (1979-1994)",
+    "Gen X (1965-1978)",
+    "Trailing-Edge Boomers (1960-1964)",
+    "Leading-Edge Boomers (1946-1959)",
+    "Matures (< 1946)",
+    "Unknown",
+  ],
+  DEMO_MARITAL: [
+    "Married",
+    "Divorced, widowed, separated",
+    "Single, never married",
+    "Cohabitating",
+    "Unknown",
+  ],
+  BLD_CHILDREN: ["None", "One", "Two", "Three", "Four", "Five", "Unknown"],
+  DEMO_LOCATION: [
+    "Metropolitan city",
+    "Suburban community of a larger city",
+    "Small town or rural city",
+    "Farming area",
+    "Unknown",
+  ],
+  DEMO_INCOME_BUCKET: [
+    "$74.9k or less",
+    "$75k-$84.9k",
+    "$85k-$99.9k",
+    "$100k-$124.9k",
+    "$125k-$149.9k",
+    "$150k-$199.9k",
+    "$200k-$299.9k",
+    "$300k-$399.9k",
+    "$400k-$499.9k",
+    "500k or more",
+    "Unknown",
+  ],
+  DEMO_EDUCATION: [
+    "Post-graduate degree",
+    "Bacheolor's/4-yr degree",
+    "Community College",
+    "Trade School",
+    "High School",
+    "Grade school",
+    "Other",
+    "Unknown",
   ],
 };
 
@@ -1192,19 +1255,63 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
         });
       }
 
+      // fix rounding to 100%
       const sumPct = items.reduce((a, b) => a + b.pct, 0);
       if (Math.abs(sumPct - 100) > 0.1 && items.length > 0) {
         const diff = 100 - sumPct;
         items[items.length - 1].pct += diff;
       }
 
+      // Special display rule for Occupation (DEMO_EMPLOY):
+      if (field === "DEMO_EMPLOY") {
+        const unknown = items.find((d) => d.label === "Unknown");
+        const top10 = items
+          .filter((d) => d.label !== "Unknown")
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 10);
+        const finalItems = unknown ? [...top10, unknown] : top10;
+
+        sections.push({
+          field,
+          mode: "categorical",
+          items: finalItems,
+          total: fieldTotal,
+        });
+        continue; // important: skip the default push below
+      }
+
+      // >>> NEW: apply custom VALUE_ORDER when present <<<
+      const order = VALUE_ORDER[field];
+      if (order) {
+        const idx = (label) => {
+          const i = order.indexOf(label);
+          return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+        };
+        items.sort((a, b) => {
+          const ai = idx(a.label);
+          const bi = idx(b.label);
+          if (ai !== bi) return ai - bi; // custom order
+          return b.pct - a.pct; // tie-break by share
+        });
+      }
+
       sections.push({ field, mode: "categorical", items, total: fieldTotal });
     }
 
-    sections.sort((a, b) => {
-      if (a.mode !== b.mode) return a.mode === "numeric" ? -1 : 1;
-      return (b.items?.[0]?.pct || 0) - (a.items?.[0]?.pct || 0);
-    });
+    if (selectedFieldGroup === "Demographics") {
+      const order = FIELD_GROUPS.Demographics;
+      const idx = (f) => {
+        const i = order.indexOf(f);
+        return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+      };
+      sections.sort((a, b) => idx(a.field) - idx(b.field));
+    } else {
+      // original behavior for Financing / others
+      sections.sort((a, b) => {
+        if (a.mode !== b.mode) return a.mode === "numeric" ? -1 : 1;
+        return (b.items?.[0]?.pct || 0) - (a.items?.[0]?.pct || 0);
+      });
+    }
 
     return sections;
   }, [scopeRows, demoModel, demoLookups, selectedFieldGroup]);
@@ -1469,10 +1576,8 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                     onClick={() => toggleModel(m)}
                     title={m}
                     style={{
-                      // full-width grid cell
                       width: "100%",
                       textAlign: "center",
-                      // active/inactive visuals (aligned with your chip style)
                       background: active
                         ? `rgba(${hexToRgbStr(baseColor)}, ${
                             isDarkHex(THEME.panel) ? 0.22 : 0.14
@@ -1486,7 +1591,6 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                       fontSize: 13,
                       transition:
                         "border-color 120ms ease, background-color 120ms ease, color 120ms ease",
-                      // avoid long names overflowing
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
@@ -1533,7 +1637,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
             </div>
           )}
 
-          {/* Select/Clear buttons (unchanged) */}
+          {/* Select/Clear buttons */}
           <div
             style={{ marginTop: 8, marginBottom: 20, display: "flex", gap: 8 }}
           >

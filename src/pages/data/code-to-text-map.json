@@ -4,7 +4,7 @@
   { "code": "GENERATION_GRP", "label": "Generation" },
   { "code": "DEMO_GENDER1", "label": "Gender" },
   { "code": "BLD_HOBBY1_GRP", "label": "Hobbies" },
-  { "code": "DEMO_INCOME", "label": "Income" },
+  { "code": "DEMO_INCOME_BUCKET", "label": "Income" },
   { "code": "BLD_LIFESTAGE", "label": "Life Stage" },
   { "code": "DEMO_LOCATION", "label": "Location" },
   { "code": "DEMO_MARITAL", "label": "Marital Status" },
