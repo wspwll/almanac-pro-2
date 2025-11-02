@@ -19,8 +19,8 @@ import {
 } from "recharts";
 
 /**
- * Product Sentiments (rev + Demographic Filters)
- * - NEW: DemographicFilters bar above everything
+ * Product Sentiments (rev + Customer Group Filter)
+ * - CustomerGroupFilter bar (single selector) ABOVE model selection
  * - Top selection bar with toggle buttons (multi-select)
  * - For each selected model (stacked vertically):
  *    • Left: Sunburst (Overall → Category → Statements)
@@ -243,22 +243,79 @@ export default function ProductSentiments({ COLORS, useStyles }) {
   // ---- Selection state (preselect first two)
   const [selected, setSelected] = useState(() => MODELS.map((_, i) => i < 2));
 
-  // ---- NEW: Demographic filter state
-  const [demo, setDemo] = useState({
-    ageRange: "", // e.g., "18-24","25-34","35-44","45-54","55-64","65+"
-    gender: "", // "Female","Male","Non-binary","Other"
-    maritalStatus: "", // "Single","Married/Partnered","Divorced/Separated","Widowed"
-    numKids: "", // "0","1","2","3+"
-    lifeStage: "", // "Young Single","Young Family","Maturing Family","Established","Empty Nester","Retired"
-    education: "", // "HS or less","Some college","Bachelor's","Graduate+"
-    householdIncome: "", // optional: "<$50k","$50-100k","$100-150k","$150k+"
+  // ---- Customer Group filter state (Category → Group)
+  const GROUP_TAXONOMY = useMemo(
+    () => [
+      {
+        key: "Occupation",
+        groups: [
+          "Management",
+          "Professional",
+          "Sales",
+          "Service",
+          "Blue Collar",
+          "Student",
+          "Homemaker",
+          "Retired",
+          "Unemployed",
+          "Unknown",
+        ],
+      },
+      {
+        key: "Income",
+        groups: [
+          "<$50k",
+          "$50–100k",
+          "$100–150k",
+          "$150–250k",
+          "$250k+",
+          "Unknown",
+        ],
+      },
+      {
+        key: "Generation",
+        groups: ["Gen Z", "Millennial", "Gen X", "Boomer", "Silent", "Unknown"],
+      },
+      {
+        key: "Gender",
+        groups: ["Female", "Male", "Non-binary/Other", "Unknown"],
+      },
+      {
+        key: "Lifestage",
+        groups: [
+          "Young Single",
+          "Young Family",
+          "Maturing Family",
+          "Established",
+          "Empty Nester",
+          "Retired",
+          "Unknown",
+        ],
+      },
+      {
+        key: "Powertrain Attitudes",
+        groups: [
+          "EV Enthusiast",
+          "Hybrid Leaning",
+          "Gas Loyalist",
+          "Skeptical",
+          "Unknown",
+        ],
+      },
+    ],
+    []
+  );
+
+  const [groupFilter, setGroupFilter] = useState({
+    category: "",
+    value: "",
   });
 
-  // ---- Apply demographic adjustments (lightweight demo logic)
+  // ---- Apply: Customer Group only (Demographic filters removed)
   const adjustedModels = useMemo(() => {
     const active = MODELS.filter((_, i) => selected[i]);
-    return active.map((m) => applyDemographicAdjustments(m, demo));
-  }, [MODELS, selected, demo]);
+    return active.map((m) => applyCustomerGroupAdjustments(m, groupFilter));
+  }, [MODELS, selected, groupFilter]);
 
   // ---- Styles
   const card = {
@@ -317,7 +374,7 @@ export default function ProductSentiments({ COLORS, useStyles }) {
           ...card,
           background: "transparent",
           border: "none",
-          padding: 18, // keep left edge aligned with other cards
+          padding: 18,
           display: "grid",
           gap: 10,
         }}
@@ -333,13 +390,19 @@ export default function ProductSentiments({ COLORS, useStyles }) {
         <p style={{ color: COLORS.muted, margin: 0 }}>
           Compare how customers feel about their vehicle purchase. Drill from
           the <em>overall score</em> into <em>category</em> and{" "}
-          <em>statement</em> contributions. Use demographic filters to view
-          custom-defined groups, then select models to compare.
+          <em>statement</em> contributions. Use a{" "}
+          <strong>Customer Group</strong> to view specific sub-audiences, then
+          select models to compare.
         </p>
       </div>
 
-      {/* ---- NEW: Demographic Filters (above model selection) ---- */}
-      <DemographicFilters COLORS={COLORS} demo={demo} setDemo={setDemo} />
+      {/* ---- Customer Group selector (ABOVE model selection) ---- */}
+      <CustomerGroupFilter
+        COLORS={COLORS}
+        taxonomy={GROUP_TAXONOMY}
+        groupFilter={groupFilter}
+        setGroupFilter={setGroupFilter}
+      />
 
       {/* ---- Model selection at the TOP ---- */}
       <div style={{ ...topBar, marginTop: 12 }}>
@@ -412,9 +475,14 @@ export default function ProductSentiments({ COLORS, useStyles }) {
   );
 }
 
-/* -------------------- NEW: Demographic Filters -------------------- */
+/* -------------------- Customer Group Filter -------------------- */
 
-function DemographicFilters({ COLORS, demo, setDemo }) {
+function CustomerGroupFilter({
+  COLORS,
+  taxonomy,
+  groupFilter,
+  setGroupFilter,
+}) {
   const wrap = {
     background: COLORS.panel,
     border: `1px solid ${COLORS.border}`,
@@ -422,6 +490,7 @@ function DemographicFilters({ COLORS, demo, setDemo }) {
     padding: 16,
     display: "grid",
     gap: 12,
+    marginBottom: 12, // space before Select models
   };
   const grid = {
     display: "grid",
@@ -438,131 +507,103 @@ function DemographicFilters({ COLORS, demo, setDemo }) {
     borderRadius: 8,
     outline: "none",
   };
+  const pill = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: `1px solid ${COLORS.border}`,
+    background: "transparent",
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: 600,
+  };
 
-  const handle = (key) => (e) =>
-    setDemo((d) => ({ ...d, [key]: e.target.value }));
+  const categories = taxonomy.map((t) => t.key);
+  const activeCat =
+    taxonomy.find((t) => t.key === groupFilter.category) || null;
+  const groupOptions = activeCat ? activeCat.groups : [];
 
   return (
     <div style={wrap}>
-      <div style={{ fontWeight: 700 }}>Demographic Filters</div>
+      <div
+        style={{
+          fontWeight: 700,
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <span>Select Customer Group</span>
+        {groupFilter.category && groupFilter.value ? (
+          <span style={pill} title="Active group filter">
+            {groupFilter.category}: <strong>{groupFilter.value}</strong>
+            <button
+              type="button"
+              onClick={() => setGroupFilter({ category: "", value: "" })}
+              style={{
+                marginLeft: 6,
+                border: "none",
+                background: "transparent",
+                color: COLORS.muted,
+                cursor: "pointer",
+                fontWeight: 700,
+              }}
+              aria-label="Clear customer group"
+              title="Clear customer group"
+            >
+              ×
+            </button>
+          </span>
+        ) : null}
+      </div>
+
       <div style={grid}>
-        <Field label="Age range">
+        <Field label="Category" labelStyle={labelStyle}>
           <select
-            value={demo.ageRange}
-            onChange={handle("ageRange")}
+            value={groupFilter.category}
+            onChange={(e) =>
+              setGroupFilter({
+                category: e.target.value,
+                value: "",
+              })
+            }
             style={select}
           >
             <option value="">All</option>
-            <option value="18-24">18–24</option>
-            <option value="25-34">25–34</option>
-            <option value="35-44">35–44</option>
-            <option value="45-54">45–54</option>
-            <option value="55-64">55–64</option>
-            <option value="65+">65+</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
           </select>
         </Field>
 
-        <Field label="Gender">
+        <Field label="Group" labelStyle={labelStyle}>
           <select
-            value={demo.gender}
-            onChange={handle("gender")}
+            value={groupFilter.value}
+            onChange={(e) =>
+              setGroupFilter((g) => ({ ...g, value: e.target.value }))
+            }
             style={select}
+            disabled={!groupFilter.category}
           >
             <option value="">All</option>
-            <option value="Female">Female</option>
-            <option value="Male">Male</option>
-            <option value="Non-binary">Non-binary</option>
-            <option value="Other">Other</option>
-          </select>
-        </Field>
-
-        <Field label="Marital status">
-          <select
-            value={demo.maritalStatus}
-            onChange={handle("maritalStatus")}
-            style={select}
-          >
-            <option value="">All</option>
-            <option value="Single">Single</option>
-            <option value="Married/Partnered">Married/Partnered</option>
-            <option value="Divorced/Separated">Divorced/Separated</option>
-            <option value="Widowed">Widowed</option>
-          </select>
-        </Field>
-
-        <Field label="Number of kids">
-          <select
-            value={demo.numKids}
-            onChange={handle("numKids")}
-            style={select}
-          >
-            <option value="">All</option>
-            <option value="0">0</option>
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3+">3+</option>
-          </select>
-        </Field>
-
-        <Field label="Household life stage">
-          <select
-            value={demo.lifeStage}
-            onChange={handle("lifeStage")}
-            style={select}
-          >
-            <option value="">All</option>
-            <option value="Young Single">Young Single</option>
-            <option value="Young Family">Young Family</option>
-            <option value="Maturing Family">Maturing Family</option>
-            <option value="Established">Established</option>
-            <option value="Empty Nester">Empty Nester</option>
-            <option value="Retired">Retired</option>
-          </select>
-        </Field>
-
-        <Field label="Education level">
-          <select
-            value={demo.education}
-            onChange={handle("education")}
-            style={select}
-          >
-            <option value="">All</option>
-            <option value="HS or less">HS or less</option>
-            <option value="Some college">Some college</option>
-            <option value="Bachelor's">Bachelor&apos;s</option>
-            <option value="Graduate+">Graduate+</option>
-          </select>
-        </Field>
-
-        <Field label="Household income (optional)">
-          <select
-            value={demo.householdIncome}
-            onChange={handle("householdIncome")}
-            style={select}
-          >
-            <option value="">All</option>
-            <option value="<$50k">&lt;$50k</option>
-            <option value="$50-100k">$50–100k</option>
-            <option value="$100-150k">$100–150k</option>
-            <option value="$150k+">$150k+</option>
+            {groupOptions.map((g) => (
+              <option key={g} value={g}>
+                {g}
+              </option>
+            ))}
           </select>
         </Field>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+      <div style={{ display: "flex", gap: 8 }}>
         <button
           type="button"
-          onClick={() =>
-            setDemo({
-              ageRange: "",
-              gender: "",
-              maritalStatus: "",
-              numKids: "",
-              lifeStage: "",
-              education: "",
-              householdIncome: "",
-            })
-          }
+          onClick={() => setGroupFilter({ category: "", value: "" })}
           style={{
             padding: "6px 10px",
             borderRadius: 999,
@@ -573,17 +614,18 @@ function DemographicFilters({ COLORS, demo, setDemo }) {
             fontSize: 12,
             cursor: "pointer",
           }}
+          title="Clear Customer Group"
         >
-          Clear Filters
+          Clear Customer Group
         </button>
       </div>
     </div>
   );
 
-  function Field({ label: labelText, children }) {
+  function Field({ label, children, labelStyle }) {
     return (
       <label style={{ display: "grid" }}>
-        <span style={labelStyle}>{labelText}</span>
+        <span style={labelStyle}>{label}</span>
         {children}
       </label>
     );
@@ -593,7 +635,6 @@ function DemographicFilters({ COLORS, demo, setDemo }) {
 /* -------------------- Model Row (Horizontal layout) -------------------- */
 
 function ModelRow({ model, COLORS }) {
-  // simple responsive two-column grid: left sunburst, right category/accordion
   const rowGrid = {
     display: "grid",
     gridTemplateColumns: "minmax(280px, 380px) 1fr",
@@ -1071,17 +1112,15 @@ function stmt(name, weight, score) {
   return { name, weight, score };
 }
 
-/* -------------------- NEW: Demographic adjustment engine -------------------- */
+/* -------------------- Customer Group adjustment engine -------------------- */
 /**
- * applyDemographicAdjustments(model, demo)
- * Lightweight demo logic:
- * - Applies small, targeted +/- adjustments by category based on selected filters.
- * - Recomputes overall as weighted average of adjusted category scores.
- *
- * Swap this out for real filtered slices when you connect survey data.
+ * applyCustomerGroupAdjustments(model, groupFilter)
+ * - Lightweight, explainable nudges based on selected Customer Group.
+ * - Mirrors "Customer Groups" page taxonomy; easy to extend/replace with real slices.
  */
-function applyDemographicAdjustments(model, demo) {
-  // Category-level deltas initialized to 0
+function applyCustomerGroupAdjustments(model, groupFilter) {
+  if (!groupFilter?.category || !groupFilter?.value) return model;
+
   const delta = {
     Design: 0,
     Performance: 0,
@@ -1091,90 +1130,91 @@ function applyDemographicAdjustments(model, demo) {
     Reliability: 0,
   };
 
-  // Age
-  switch (demo.ageRange) {
-    case "18-24":
-    case "25-34":
+  const { category, value } = groupFilter;
+
+  // Example heuristics (swap for your real cohort diffs)
+  if (category === "Occupation") {
+    if (value === "Management" || value === "Professional") {
       delta.Technology += 2;
       delta.Design += 1;
-      break;
-    case "35-44":
-    case "45-54":
-      delta.Comfort += 1;
+    } else if (value === "Sales" || value === "Service") {
+      delta.Design += 1;
       delta.Value += 1;
-      break;
-    case "55-64":
-    case "65+":
+    } else if (value === "Blue Collar") {
+      delta.Reliability += 2;
+      delta.Value += 1;
+    } else if (value === "Student") {
+      delta.Technology += 1;
+      delta.Value += 1;
+    } else if (value === "Retired") {
       delta.Comfort += 2;
       delta.Reliability += 1;
-      break;
-    default:
-      break;
+    }
   }
 
-  // Gender
-  switch (demo.gender) {
-    case "Female":
+  if (category === "Income") {
+    if (value === "<$50k") {
+      delta.Value += 2;
+    } else if (value === "$150–250k" || value === "$250k+") {
+      delta.Design += 1;
+      delta.Technology += 1;
+    }
+  }
+
+  if (category === "Generation") {
+    if (value === "Gen Z" || value === "Millennial") {
+      delta.Technology += 2;
+      delta.Design += 1;
+    } else if (value === "Boomer" || value === "Silent") {
+      delta.Reliability += 2;
+      delta.Comfort += 1;
+    }
+  }
+
+  if (category === "Gender") {
+    if (value === "Female") {
       delta.Comfort += 1;
       delta.Technology += 1;
-      break;
-    case "Male":
+    } else if (value === "Male") {
       delta.Performance += 1;
       delta.Design += 1;
-      break;
-    default:
-      break;
+    }
   }
 
-  // Marital status
-  if (demo.maritalStatus === "Married/Partnered") delta.Value += 1;
-  if (demo.maritalStatus === "Single") delta.Design += 1;
-
-  // Number of kids
-  if (demo.numKids === "2" || demo.numKids === "3+") {
-    delta.Comfort += 2;
-    delta.Value += 1;
-  } else if (demo.numKids === "1") {
-    delta.Comfort += 1;
+  if (category === "Lifestage") {
+    if (value === "Young Family" || value === "Maturing Family") {
+      delta.Comfort += 2;
+      delta.Value += 1;
+    } else if (value === "Empty Nester" || value === "Retired") {
+      delta.Reliability += 2;
+    }
   }
 
-  // Life stage
-  if (
-    demo.lifeStage === "Young Family" ||
-    demo.lifeStage === "Maturing Family"
-  ) {
-    delta.Comfort += 2;
-    delta.Value += 1;
-  }
-  if (demo.lifeStage === "Empty Nester" || demo.lifeStage === "Retired") {
-    delta.Reliability += 2;
-  }
-
-  // Education
-  if (demo.education === "Graduate+") {
-    delta.Technology += 1;
+  if (category === "Powertrain Attitudes") {
+    if (value === "EV Enthusiast") {
+      delta.Technology += 2;
+      delta.Performance += 1;
+    } else if (value === "Hybrid Leaning") {
+      delta.Value += 1;
+      delta.Technology += 1;
+    } else if (value === "Gas Loyalist" || value === "Skeptical") {
+      delta.Reliability += 1;
+      delta.Value += 1;
+    }
   }
 
-  // Income
-  if (demo.householdIncome === "<$50k") delta.Value += 2;
-  if (demo.householdIncome === "$150k+") delta.Design += 1;
-
-  // Build adjusted categories & statements
+  // Apply to categories and statements (tempered to statements)
   const adjCategories = model.categories.map((c) => {
     const add = delta[c.name] ?? 0;
     const newScore = clampScore(c.score + add);
-
-    // statements get a tempered version of the category delta
     const sAdj = add * 0.7;
     const newStatements = c.statements.map((s) => ({
       ...s,
       score: clampScore(s.score + sAdj),
     }));
-
     return { ...c, score: newScore, statements: newStatements };
   });
 
-  // Recompute overall as weighted average of adjusted categories
   const totalW = sum(adjCategories.map((c) => c.weight));
   const newOverall =
     totalW > 0

@@ -19,8 +19,9 @@ import largePuPoints from "./data/large_pu_points.json";
 import demosMapping from "./data/demos-mapping.json";
 import codeToTextMapRaw from "./data/code-to-text-map.json";
 import { ComposableMap, Geographies, Geography } from "react-simple-maps";
-import { Lock, Unlock } from "lucide-react";
+import { Lock, Unlock, ChevronDown, ChevronUp } from "lucide-react";
 
+/* ---- Local series palette (renamed to avoid clashing with THEME.COLORS) ---- */
 const SERIES_COLORS = [
   "#1F77B4",
   "#FF7F0E",
@@ -708,6 +709,9 @@ const chipFixedCG = (active, baseColor, panelColor, borderColor, textColor) => {
 export default function CustomerGroups({ COLORS: THEME, useStyles }) {
   const [datasetMode, setDatasetMode] = useState("CORE");
 
+  // NEW: Overview guide collapsed/expanded
+  const [guideOpen, setGuideOpen] = useState(false);
+
   // group values:
   // CORE: "SUV" | "Pickup"
   // SEGMENTS: "MidSUV" | "LargePickup"
@@ -1373,21 +1377,424 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           Customer Groups
         </h1>
 
-        <p
+        {/* Subheader + expand icon aligned to the right edge */}
+        <div style={{ position: "relative" }}>
+          <p
+            style={{
+              color: THEME.muted,
+              margin: 0,
+              fontSize: 20,
+              lineHeight: 1.4,
+              paddingRight: 36, // space for the icon button
+            }}
+          >
+            Explore how customer segments differ across models and clusters.
+            Toggle datasets, select models, or filter by state to see how
+            attitudes, transaction prices, and demographics vary within your
+            audience.
+          </p>
+
+          <button
+            onClick={() => setGuideOpen((v) => !v)}
+            aria-expanded={guideOpen}
+            aria-label={guideOpen ? "Collapse overview" : "Expand overview"}
+            style={{
+              position: "absolute",
+              right: 0,
+              top: 0,
+              height: 28,
+              width: 28,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 8,
+              border: `1px solid ${THEME.border}`,
+              background: THEME.panel,
+              color: THEME.text,
+              cursor: "pointer",
+              boxShadow:
+                THEME.name === "midnight"
+                  ? "0 1px 2px rgba(0,0,0,0.25)"
+                  : "0 1px 2px rgba(0,0,0,0.10)",
+            }}
+            title={guideOpen ? "Hide overview" : "Show overview"}
+          >
+            {guideOpen ? (
+              <ChevronUp size={16} strokeWidth={2} />
+            ) : (
+              <ChevronDown size={16} strokeWidth={2} />
+            )}
+          </button>
+        </div>
+
+        {/* Collapsible overview */}
+        <div
           style={{
-            color: THEME.muted,
-            margin: 0,
-            fontSize: 20,
-            lineHeight: 1.4,
+            overflow: "hidden",
+            transition: "max-height 280ms ease, opacity 220ms ease, margin-top 200ms ease",
+            maxHeight: guideOpen ? 1400 : 0,
+            opacity: guideOpen ? 1 : 0,
+            marginTop: guideOpen ? 12 : 0,
           }}
         >
-          Explore how customer segments differ across models and clusters.
-          Toggle datasets, select models, or filter by state to see how
-          attitudes, transaction prices, and demographics vary within your
-          audience.
-        </p>
+          <div
+            style={{
+              background: THEME.panel,
+              border: `1px solid ${THEME.border}`,
+              borderRadius: 12,
+              padding: 16,
+              color: THEME.text,
+            }}
+          >
+            <div style={{ color: THEME.text, fontSize: 18, marginBottom: 20 }}>
+              This tool helps you understand <b>who Scout's customers are</b>,
+              how these customers are <b>grouped</b>, what makes them{" "}
+              <b>similar</b>, and what makes them <b>different</b>.
+              <br />
+              <br />
+              It brings together four views— <i>high-level clusters</i>,{" "}
+              <i>attitudes on loyalty and willingness to pay</i>,{" "}
+              <i>location of residence</i>, and <i>transaction price</i> — plus
+              a detailed multi-group panel to explore <b>demographics</b>,{" "}
+              <b>financing</b>, and <b>buying behavior</b>. You can explore all
+              of this with our core SUV and Pickup competitive set, as well as
+              our broader addressable market segments.
+            </div>
+
+            {/* Two-column overview: left = 3 stacked cards, right = 1 card.
+                Left cards share equal height and match the right card's total height. */}
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                alignItems: "stretch",
+              }}
+            >
+              {/* LEFT COLUMN (three stacked, equal heights) */}
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                  minHeight: 0,
+                }}
+              >
+                {/* What you can do */}
+                <div
+                  style={{
+                    background: THEME.bg,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: 10,
+                    padding: 12,
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 24,
+                      marginTop: 5,
+                      marginBottom: 10,
+                      marginLeft: 10,
+                      color: THEME.accent,
+                    }}
+                  >
+                    What you can do
+                  </div>
+                  <ul
+                    style={{
+                      listStyle: "none",
+                      paddingLeft: 0,
+                      marginLeft: 20,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <li
+                      style={{
+                        color: THEME.text,
+                        fontSize: 16,
+                        marginBottom: 6,
+                        display: "flex",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <span style={{ color: THEME.text, marginRight: 8 }}>
+                        {">"}
+                      </span>
+                      <span>
+                        <b>Compare customers</b> across models and clusters
+                      </span>
+                    </li>
+                    <li
+                      style={{
+                        color: THEME.text,
+                        fontSize: 16,
+                        marginBottom: 6,
+                        display: "flex",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <span style={{ color: THEME.text, marginRight: 8 }}>
+                        {">"}
+                      </span>
+                      <span>
+                        <b>Explore differences</b> among demographics,
+                        attitudes, and finances
+                      </span>
+                    </li>
+                    <li
+                      style={{
+                        color: THEME.text,
+                        fontSize: 16,
+                        marginBottom: 6,
+                        display: "flex",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <span style={{ color: THEME.text, marginRight: 8 }}>
+                        {">"}
+                      </span>
+                      <span>
+                        <b>Analyze</b> state-level variation and price
+                        distributions
+                      </span>
+                    </li>
+                    <li
+                      style={{
+                        color: THEME.text,
+                        fontSize: 16,
+                        marginBottom: 6,
+                        display: "flex",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <span style={{ color: THEME.text, marginRight: 8 }}>
+                        {">"}
+                      </span>
+                      <span>
+                        <b>Identify</b> who your audience is and what drives
+                        their choices
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+
+                {/* Typical questions this answers */}
+                <div
+                  style={{
+                    background: THEME.bg,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: 10,
+                    padding: 12,
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 24,
+                      marginTop: 5,
+                      marginBottom: 10,
+                      marginLeft: 10,
+                      color: THEME.accent,
+                    }}
+                  >
+                    Typical questions this answers
+                  </div>
+                  <ol style={{ marginLeft: 25, lineHeight: 2, paddingLeft: 10 }}>
+                    <li>
+                      What are the distinct <b>customer groups</b> within
+                      Scout&apos;s competitive market, and what makes them{" "}
+                      <b>unique</b>?
+                    </li>
+                    <li>
+                      What <b>demographic and behavioral traits</b> differentiate
+                      clusters most?
+                    </li>
+                    <li>
+                      Which groups show the <b>highest loyalty</b> and are
+                      willing to <b>pay more</b>?
+                    </li>
+                    <li>
+                      How much do different customers <b>pay</b> for their
+                      vehicle?
+                    </li>
+                    <li>Where do these customers <b>live</b>?</li>
+                  </ol>
+                </div>
+
+                {/* Tips for clean comparisons */}
+                <div
+                  style={{
+                    background: THEME.bg,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: 10,
+                    padding: 12,
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 24,
+                      marginTop: 5,
+                      marginBottom: 10,
+                      marginLeft: 10,
+                      color: THEME.accent,
+                    }}
+                  >
+                    Tips to get the most out of this tool
+                  </div>
+                  <ul
+                    style={{
+                      listStyle: "none",
+                      paddingLeft: 0,
+                      marginLeft: 20,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <li
+                      style={{
+                        color: THEME.text,
+                        fontSize: 16,
+                        marginBottom: 6,
+                        display: "flex",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <span style={{ color: THEME.text, marginRight: 8 }}>
+                        {">"}
+                      </span>
+                      <span>
+                        Use the <b>lock function</b> on a chart (top right hand corner) to show the full
+                        population while you adjust filters elsewhere.
+                      </span>
+                    </li>
+                    <li
+                      style={{
+                        color: THEME.text,
+                        fontSize: 16,
+                        marginBottom: 6,
+                        display: "flex",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <span style={{ color: THEME.text, marginRight: 8 }}>
+                        {">"}
+                      </span>
+                      <span>
+                        Keep an eye on <b>sample sizes</b> to avoid over-interpreting small groups.
+                        In most cases, a sample size of <i>less than 100</i> should make you pause.
+                      </span>
+                    </li>
+                    <li
+                      style={{
+                        color: THEME.text,
+                        fontSize: 16,
+                        marginBottom: 6,
+                        display: "flex",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <span style={{ color: THEME.text, marginRight: 8 }}>
+                        {">"}
+                      </span>
+                      <span>
+                        When in doubt, color by <i>Cluster</i> for <b>broad structure</b> and color
+                        by <i>Model</i> for vehicle-level <b>nuance</b>.
+                      </span>
+                    </li>
+                    <li
+                      style={{
+                        color: THEME.text,
+                        fontSize: 16,
+                        marginBottom: 6,
+                        display: "flex",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* RIGHT COLUMN (matches left column total height) */}
+              <div
+                style={{
+                  flex: 1,
+                  background: THEME.bg,
+                  border: `1px solid ${THEME.border}`,
+                  borderRadius: 10,
+                  padding: 12,
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: 24,
+                    marginTop: 5,
+                    marginBottom: 10,
+                    marginLeft: 10,
+                    color: THEME.accent,
+                  }}
+                >
+                  How to read the charts
+                </div>
+                <ul
+                  style={{
+                    listStyle: "none",
+                    paddingLeft: 0,
+                    marginLeft: 20,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <li style={{ marginBottom: 8 }}>
+                    <b>Clustering UMAP Scatter Plot</b>: A UMAP projection
+                    transforms many variables into a 2D picture so nearby points
+                    are more similar than distant ones. Each point is a
+                    respondent; color by <i>Cluster</i> or <i>Model</i>.
+                    “Collapse points” pulls respondents toward their group
+                    centroid to reveal structure. Click on any of the clusters on the group to reveal its associated data.
+                  </li>
+                  <li style={{ margin: "8px 0" }}>
+                    <b>Customer Group Details Panel</b>: Explore demographics,
+                    financing, buying behavior, loyalty, and willingness to pay.
+                    Financing metrics show weighted averages where applicable.
+                  </li>
+                  <li style={{ margin: "8px 0" }}>
+                    <b>Customer Loyalty &amp; Willingness to Pay</b>: Positions
+                    each group by loyalty (right = higher) and willingness to
+                    pay (up = higher). Higher-right groups tend to be higher
+                    lifetime value. Swap attitudinal statements for nuance.
+                  </li>
+                  <li style={{ margin: "8px 0" }}>
+                    <b>Transaction Price</b>: Share of customers in each price
+                    bucket by group. Compare curve shapes to see how price
+                    distributions differ.
+                  </li>
+                  <li style={{ marginTop: 8 }}>
+                    <b>State of Residence Map</b>: Shows where the selected
+                    population lives. Brighter fill = higher share. Click a
+                    state to filter all visuals.
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
+      {/* Controls row */}
       <div
         style={{
           display: "grid",
@@ -1806,6 +2213,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
         </div>
       </div>
 
+      {/* Top row: Scatter + Demographics */}
       <div
         style={{
           display: "flex",
@@ -1979,6 +2387,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           </div>
         </div>
 
+        {/* Right: Demographics panel */}
         <div
           style={{
             width: 360,
