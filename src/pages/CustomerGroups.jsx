@@ -190,11 +190,35 @@ function tweenDomain(from, to, t) {
   return [f0 + (t0 - f0) * e, f1 + (t1 - f1) * e];
 }
 
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+function percentPaddedDomain(values) {
+  if (!values || values.length === 0) return [0, 100];
+  const finiteVals = values.filter((v) => Number.isFinite(v));
+  if (finiteVals.length === 0) return [0, 100];
+  let min = Math.min(...finiteVals);
+  let max = Math.max(...finiteVals);
+  if (min === max) {
+    const eps = Math.max(1, Math.abs(min) * 0.05);
+    min -= eps;
+    max += eps;
+  } else {
+    const pad = (max - min) * 0.05;
+    min -= pad;
+    max += pad;
+  }
+  min = clamp(min, 0, 100);
+  max = clamp(max, 0, 100);
+  return [Math.floor(min), Math.ceil(max)];
+}
+
 const STATE_KEYS = [
   "ADMARK_STATE", "admark_state", "STATE", "State", "state",
   "DM_STATE", "DM_STATE_CODE", "STATE_ABBR", "state_abbr", "ST", "st",
 ];
 
+/* ---------- Personas ---------- */
 const PERSONA_BY_CLUSTER = {
   0: {
     title: "C0 • Practical Commuters",
@@ -240,6 +264,7 @@ function getPersonaForCluster(id) {
   return PERSONA_BY_CLUSTER[id] ?? PERSONA_BY_CLUSTER.default;
 }
 
+/* ---------- Field groups ---------- */
 const FIELD_GROUPS = {
   Demographics: [
     "DEMO_GENDER1", "BLD_AGE_GRP", "GENERATION_GRP", "DEMO_MARITAL", "BLD_CHILDREN",
@@ -262,6 +287,38 @@ const FIELD_GROUPS = {
     "STATE_MON_PAY", "STATE_SHOP_MANY",
   ],
 };
+
+/* ---------- NEW: Imagery options ---------- */
+const IMAGERY_OPTIONS = [
+  { key: "IMAGE_BOLD", label: "Bold" },
+  { key: "IMAGE_CLASSIC", label: "Classic" },
+  { key: "IMAGE_COMFORT", label: "Comfortable" },
+  { key: "IMAGE_CONSERVATIVE", label: "Conservative" },
+  { key: "IMAGE_DEPENDABLE", label: "Dependable" },
+  { key: "IMAGE_DISTINCT", label: "Distinct" },
+  { key: "IMAGE_ECONOMY", label: "Economical" },
+  { key: "IMAGE_ELEGANT", label: "Elegant" },
+  { key: "IMAGE_ENGINEER", label: "Well-Engineered" },
+  { key: "IMAGE_ENVIRONMENT", label: "Environmentally-Friendly" },
+  { key: "IMAGE_EXCITING", label: "Exciting" },
+  { key: "IMAGE_FAMILY", label: "Family-Oriented" },
+  { key: "IMAGE_FUNCTION", label: "Functional" },
+  { key: "IMAGE_FUN_DRIVE", label: "Fun to Drive" },
+  { key: "IMAGE_GOOD_VALUE", label: "Good Value" },
+  { key: "IMAGE_INNOVATIVE", label: "Innovative" },
+  { key: "IMAGE_LUXURY", label: "Luxurious" },
+  { key: "IMAGE_POWER", label: "Powerful" },
+  { key: "IMAGE_PRESTIGE", label: "Prestigious" },
+  { key: "IMAGE_RESPONSIVE", label: "Responsive" },
+  { key: "IMAGE_RUGGED", label: "Rugged/Tough" },
+  { key: "IMAGE_SAFE", label: "Safe" },
+  { key: "IMAGE_SIMPLE", label: "Simple" },
+  { key: "IMAGE_SLEEK", label: "Sleek" },
+  { key: "IMAGE_SOPHISTICATED", label: "Sophisticated" },
+  { key: "IMAGE_SPORTY", label: "Sporty" },
+  { key: "IMAGE_STYLE", label: "Stylish" },
+  { key: "IMAGE_YOUTH", label: "Youthful" },
+];
 
 const VALUE_ORDER = {
   DEMO_GENDER1: ["Male", "Female", "Other", "Unknown"],
@@ -439,7 +496,7 @@ function isTopNAgree(label, policy) {
   return AGREE_TOP3.has(s);
 }
 
-/* ---------- One-pass attitudes aggregation ---------- */
+/* ---------- One-pass attitudes aggregation (left chart) ---------- */
 function buildAttitudesPointsOnePass(
   rows, groupBy, attXVar, attYVar, demoLookups, colorMode, modelColors, accent
 ) {
@@ -464,7 +521,7 @@ function buildAttitudesPointsOnePass(
   const keys = Array.from(acc.keys()).sort(groupBy === "cluster" ? (a, b) => a - b : undefined);
   return keys.map((k) => {
     const a = acc.get(k);
-    const xDen = a.xValid + a.xMiss;
+    const xDen = a.xValid + a.xMiss; // include missing in denom (filtered population)
     const yDen = a.yValid + a.yMiss;
     return {
       key: k,
@@ -475,6 +532,28 @@ function buildAttitudesPointsOnePass(
       color: colorMode === "model" ? (modelColors[String(k)] || accent) : clusterColor(Number(k)),
     };
   });
+}
+
+/* ---------- NEW: % Agree for Imagery (Y) and % selecting PR_MOST (X) ---------- */
+/** Imagery %Agree among filtered rows: only value === 1 counts as agree; 0 or missing = not agree */
+function imageryPercent(rows, imageryKey) {
+  if (!rows || rows.length === 0) return null;
+  let agree = 0;
+  for (const r of rows) {
+    const v = r?.[imageryKey];
+    if (v === 1 || v === "1") agree += 1;
+  }
+  return (agree / rows.length) * 100;
+}
+/** Purchase Reason % selecting the chosen label among filtered rows */
+function purchaseReasonPercent(rows, labelWanted, demoLookups) {
+  if (!rows || rows.length === 0 || !labelWanted) return null;
+  let sel = 0;
+  for (const r of rows) {
+    const lab = resolveMappedLabel(r, "PR_MOST", demoLookups);
+    if (lab != null && String(lab).trim() !== "" && String(lab) === String(labelWanted)) sel += 1;
+  }
+  return (sel / rows.length) * 100;
 }
 
 function useAnimationToken(deps) { return React.useMemo(() => deps.join("::"), deps); }
@@ -515,7 +594,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
   const [centerT, setCenterT] = useState(0);
   const [selectedStateName, setSelectedStateName] = useState(null);
   const [showPersona, setShowPersona] = useState(false);
-  const [selectedFieldGroup, setSelectedFieldGroup] = useState("Demographics");
+  const [selectedFieldGroup, setSelectedFieldGroup] = useState("Financing");
 
   useEffect(() => {
     setZoomCluster(null);
@@ -720,10 +799,31 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
   const [demoModel, setDemoModel] = useState(null);
   useEffect(() => { if (demoModel && !modelsInScope.includes(demoModel)) setDemoModel(null); }, [modelsInScope, demoModel]);
 
+  /* Left chart controls */
   const LOYALTY_VARS = FIELD_GROUPS.Loyalty;
   const WTP_VARS = FIELD_GROUPS["Willingness to Pay"];
   const [attXVar, setAttXVar] = useState(LOYALTY_VARS[0]);
-  const [attYVar, setAttYVar] = useState(WTP_VARS[0]);
+  const [attYVar, setAttYVar] = useState(WTP_VARS[0]); // LEFT chart Y
+
+  /* Right chart controls */
+  const [imageryKey, setImageryKey] = useState(IMAGERY_OPTIONS[0].key);
+
+  // Build the available PR_MOST options dynamically from the filtered-attitudes base
+  const prMostOptions = useMemo(() => {
+    const labels = new Set();
+    for (const r of (zoomCluster == null ? baseByModel : baseByModel.filter(rr => rr.cluster === zoomCluster))) {
+      const lab = resolveMappedLabel(r, "PR_MOST", demoLookups);
+      if (lab != null && String(lab).trim() !== "") labels.add(String(lab));
+    }
+    return Array.from(labels).sort((a, b) => a.localeCompare(b));
+  }, [baseByModel, zoomCluster, demoLookups]);
+
+  const [prMostLabel, setPrMostLabel] = useState("");
+  useEffect(() => {
+    if (!prMostLabel || !prMostOptions.includes(prMostLabel)) {
+      setPrMostLabel(prMostOptions[0] || "");
+    }
+  }, [prMostOptions, prMostLabel]);
 
   const [attLocked, setAttLocked] = useState(false);
   const [priceLocked, setPriceLocked] = useState(false);
@@ -732,7 +832,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
   const animToken = useAnimationToken([
     datasetMode, group, colorMode, zoomCluster ?? "all",
     selectedModels.join("|"), selectedStateName ?? "no-state",
-    demoModel ?? "all-models", attXVar, attYVar,
+    demoModel ?? "all-models", attXVar, attYVar, imageryKey, prMostLabel,
     attLocked ? "attLOCK" : "attUNLOCK",
     priceLocked ? "priceLOCK" : "priceUNLOCK",
     mapLocked ? "mapLOCK" : "mapUNLOCK",
@@ -743,11 +843,53 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
     return demoModel ? scopeRows.filter((r) => r.model === demoModel) : scopeRows;
   }, [attLocked, rows, scopeRows, demoModel]);
 
+  /* LEFT chart data (Loyalty × WTP) */
   const attitudesPoints = useMemo(() => {
     const groupBy = colorMode === "cluster" ? "cluster" : "model";
     return buildAttitudesPointsOnePass(attBaseRows, groupBy, attXVar, attYVar, demoLookups, colorMode, modelColors, THEME.accent);
   }, [attBaseRows, colorMode, attXVar, attYVar, demoLookups, modelColors, THEME.accent]);
 
+  const leftXDomain = useMemo(
+    () => percentPaddedDomain(attitudesPoints.map(p => p.x)),
+    [attitudesPoints]
+  );
+  const leftYDomain = useMemo(
+    () => percentPaddedDomain(attitudesPoints.map(p => p.y)),
+    [attitudesPoints]
+  );
+
+
+  /* RIGHT chart data (PR_MOST × Imagery) */
+  const attitudesImageryPoints = useMemo(() => {
+    const groupBy = colorMode === "cluster" ? "cluster" : "model";
+    const byGroup = new Map();
+    for (const r of attBaseRows) {
+      const gk = groupBy === "cluster" ? r.cluster : String(r.model);
+      if (!byGroup.has(gk)) byGroup.set(gk, []);
+      byGroup.get(gk).push(r);
+    }
+    const out = [];
+    for (const [gk, gr] of byGroup.entries()) {
+      const x = purchaseReasonPercent(gr, prMostLabel, demoLookups); // X = PR_MOST %
+      const y = imageryPercent(gr, imageryKey);                       // Y = Imagery %
+      if (x == null || y == null) continue;
+      const name = groupBy === "cluster" ? `C${gk}` : String(gk);
+      const col = colorMode === "cluster" ? clusterColor(Number(gk)) : (modelColors[String(gk)] || THEME.accent);
+      out.push({ key: gk, name, x, y, n: gr.length, color: col });
+    }
+    return out;
+  }, [attBaseRows, colorMode, prMostLabel, imageryKey, demoLookups, modelColors, THEME.accent]);
+
+  const rightXDomain = useMemo(
+    () => percentPaddedDomain(attitudesImageryPoints.map(p => p.x)),
+    [attitudesImageryPoints]
+  );
+  const rightYDomain = useMemo(
+    () => percentPaddedDomain(attitudesImageryPoints.map(p => p.y)),
+    [attitudesImageryPoints]
+  );
+
+  /* ---- Clusters domains animation ---- */
   const targetX = useMemo(() => paddedDomain(plotFrame.map((r) => r.emb_x)), [plotFrame]);
   const targetY = useMemo(() => paddedDomain(plotFrame.map((r) => r.emb_y)), [plotFrame]);
   const [animX, setAnimX] = useState(targetX);
@@ -774,6 +916,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetX[0], targetX[1], targetY[0], targetY[1]]);
 
+  /* ---- Map prep ---- */
   const demoBaseRows = useMemo(() => (zoomCluster == null ? baseByModel : baseByModel.filter((r) => r.cluster === zoomCluster)), [baseByModel, zoomCluster]);
   const mapBaseRows = useMemo(() => (demoModel ? demoBaseRows.filter((r) => r.model === demoModel) : demoBaseRows), [demoBaseRows, demoModel]);
   const mapSourceRows = useMemo(() => (mapLocked ? rows : mapBaseRows), [mapLocked, rows, mapBaseRows]);
@@ -799,6 +942,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
 
   const [hoverState, setHoverState] = useState(null);
 
+  /* ---- Demographics panel ---- */
   const demoSummary = useMemo(() => {
     const sections = [];
     const fields = FIELD_GROUPS[selectedFieldGroup] || [];
@@ -887,6 +1031,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
 
   const activeSampleSize = plotFrame.length;
 
+  /* ---- Price prep ---- */
   const priceBaseRows = useMemo(() => {
     if (priceLocked) return rows;
     return demoModel ? scopeRows.filter((r) => r.model === demoModel) : scopeRows;
@@ -964,7 +1109,6 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
               a detailed multi-group panel to explore <b>demographics</b>, <b>financing</b>, and <b>buying behavior</b>. You can explore all of this with our core SUV and Pickup competitive set,
               as well as our broader addressable market segments.
             </div>
-            {/* (Overview sub-cards omitted for brevity) */}
           </div>
         </div>
       </div>
@@ -1318,9 +1462,10 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
               }}
               title="Choose category"
             >
-              {Object.keys(FIELD_GROUPS).map((k) => (
+              {["Financing", "Demographics", "Buying Behavior", "Loyalty", "Willingness to Pay"].map((k) => (
                 <option key={k} value={k}>{k}</option>
               ))}
+
             </select>
           </div>
 
@@ -1403,7 +1548,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
 
       {/* ---- Middle row: Attitudes duplicated 50/50 ---- */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "stretch", gridAutoRows: "minmax(0, auto)" }}>
-        {/* LEFT attitudes */}
+        {/* LEFT attitudes (Loyalty × WTP) */}
         <div
           style={{
             position: "relative", background: THEME.panel, border: `1px solid ${THEME.border}`,
@@ -1448,8 +1593,8 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart margin={{ top: 50, right: 20, bottom: 25, left: 5 }}>
                 <CartesianGrid stroke={THEME.border} strokeDasharray="4 6" />
-                <XAxis type="number" dataKey="x" name={varLabel(attXVar)} tickFormatter={(v) => `${v.toFixed(0)}%`} tick={{ fill: THEME.muted, fontSize: 12 }} stroke={THEME.border} domain={[0, 100]} />
-                <YAxis type="number" dataKey="y" name={varLabel(attYVar)} tickFormatter={(v) => `${v.toFixed(0)}%`} tick={{ fill: THEME.muted, fontSize: 12 }} stroke={THEME.border} domain={[0, 100]} />
+                <XAxis type="number" dataKey="x" name={varLabel(attXVar)} tickFormatter={(v) => `${v.toFixed(0)}%`} tick={{ fill: THEME.muted, fontSize: 12 }} stroke={THEME.border} domain={leftXDomain} />
+                <YAxis type="number" dataKey="y" name={varLabel(attYVar)} tickFormatter={(v) => `${v.toFixed(0)}%`} tick={{ fill: THEME.muted, fontSize: 12 }} stroke={THEME.border} domain={leftYDomain} />
                 <Tooltip
                   isAnimationActive={false}
                   cursor={{ stroke: THEME.border }}
@@ -1518,7 +1663,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           </div>
         </div>
 
-        {/* RIGHT attitudes (duplicate) */}
+        {/* RIGHT attitudes (PR_MOST × Imagery) */}
         <div
           style={{
             position: "relative", background: THEME.panel, border: `1px solid ${THEME.border}`,
@@ -1549,23 +1694,43 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           </button>
 
           <div style={{ width: "100%", display: "flex", justifyContent: "center", alignItems: "center", fontWeight: 700, fontSize: 22, marginTop: 8, marginBottom: 0, color: THEME.text }}>
-            Customer Loyalty & Willingness to Pay
+            Most Important Purchase Reason & Imagery
           </div>
 
-          {/* (Same chart body as left) */}
+          {/* RIGHT chart body */}
           <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
             {/* top label */}
-            <div style={{ position: "absolute", top: 0, left: "50%", width: "60%", transform: "translateX(-50%)", fontStyle: "italic", fontWeight: 600, color: THEME.muted, fontSize: 10, textAlign: "center" }}>
-              {varLabel(attXVar)} <span style={{ fontStyle: "normal", fontWeight: 400, margin: "0 6px" }}>×</span> {varLabel(attYVar)}
+            <div style={{ position: "absolute", top: 0, left: "50%", width: "70%", transform: "translateX(-50%)", fontStyle: "italic", fontWeight: 600, color: THEME.muted, fontSize: 10, textAlign: "center" }}>
+              {prMostLabel || "Most Important Purchase Reason"}
+              <span style={{ fontStyle: "normal", fontWeight: 400, margin: "0 6px" }}>×</span>
+              {IMAGERY_OPTIONS.find(o => o.key === imageryKey)?.label || "Imagery"}
             </div>
             <div style={{ position: "absolute", top: 25, right: 30, fontSize: 13, color: THEME.muted, textAlign: "right" }}>
               Sample size: <span style={{ fontWeight: 700, color: THEME.text }}>{attBaseRows.length.toLocaleString()}</span>
             </div>
+
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart margin={{ top: 50, right: 20, bottom: 25, left: 5 }}>
                 <CartesianGrid stroke={THEME.border} strokeDasharray="4 6" />
-                <XAxis type="number" dataKey="x" name={varLabel(attXVar)} tickFormatter={(v) => `${v.toFixed(0)}%`} tick={{ fill: THEME.muted, fontSize: 12 }} stroke={THEME.border} domain={[0, 100]} />
-                <YAxis type="number" dataKey="y" name={varLabel(attYVar)} tickFormatter={(v) => `${v.toFixed(0)}%`} tick={{ fill: THEME.muted, fontSize: 12 }} stroke={THEME.border} domain={[0, 100]} />
+                <XAxis
+                  type="number"
+                  dataKey="x"
+                  name={prMostLabel || "Most Important Purchase Reason"}
+                  tickFormatter={(v) => `${v.toFixed(0)}%`}
+                  tick={{ fill: THEME.muted, fontSize: 12 }}
+                  stroke={THEME.border}
+                  domain={rightXDomain}
+                  label={{ value: "Most Important Purchase Reason", position: "bottom", fill: THEME.text, fontSize: 12 }}
+                />
+                <YAxis
+                  type="number"
+                  dataKey="y"
+                  name="% Agree"
+                  tickFormatter={(v) => `${v.toFixed(0)}%`}
+                  tick={{ fill: THEME.muted, fontSize: 12 }}
+                  stroke={THEME.border}
+                  domain={rightYDomain}
+                />
                 <Tooltip
                   isAnimationActive={false}
                   cursor={{ stroke: THEME.border }}
@@ -1576,58 +1741,61 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                     if (!active || !payload || !payload.length) return null;
                     const p = payload[0]?.payload;
                     if (!p) return null;
-                    const isNumericKey = Number.isFinite(Number(p.key));
-                    const title = isNumericKey ? `C${p.key}` : p.name || String(p.key);
-                    const fillColor = colorMode === "model" ? (modelColors[String(p.key)] || THEME.accent) : clusterColor(Number(p.key));
+                    const fillColor = p.color || (colorMode === "cluster" ? clusterColor(Number(p.key)) : (modelColors[String(p.key)] || THEME.accent));
                     return (
                       <div style={{ background: THEME.bg, borderRadius: 8, color: THEME.text, padding: "10px 12px", border: `1px solid ${THEME.border}` }}>
-                        <div style={{ fontWeight: 800, marginBottom: 6, color: fillColor }}>{title}</div>
+                        <div style={{ fontWeight: 800, marginBottom: 6, color: fillColor }}>{p.name}</div>
                         <div style={{ display: "grid", rowGap: 2 }}>
-                          <div><span style={{ opacity: 0.75 }}>Loyalty:</span> <span style={{ fontWeight: 600 }}>{Number.isFinite(p.x) ? `${p.x.toFixed(1)}%` : "—"}</span></div>
-                          <div><span style={{ opacity: 0.75 }}>WTP:</span> <span style={{ fontWeight: 600 }}>{Number.isFinite(p.y) ? `${p.y.toFixed(1)}%` : "—"}</span></div>
+                          <div><span style={{ opacity: 0.75 }}>Selected:</span> <span style={{ fontWeight: 600 }}>{Number.isFinite(p.x) ? `${p.x.toFixed(1)}%` : "—"}</span></div>
+                          <div><span style={{ opacity: 0.75 }}>Agree:</span> <span style={{ fontWeight: 600 }}>{Number.isFinite(p.y) ? `${p.y.toFixed(1)}%` : "—"}</span></div>
                           <div><span style={{ opacity: 0.75 }}>Sample:</span> <span style={{ fontWeight: 600, color: THEME.text }}>{Number.isFinite(p.n) ? p.n.toLocaleString() : "—"}</span></div>
                         </div>
                       </div>
                     );
                   }}
                 />
-                <Scatter data={attitudesPoints} name="" shape={<BigDot />}>
-                  {attitudesPoints.map((pt, i) => (
-                    <Cell key={`att2-cell-${pt.key}-${i}`} fill={colorMode === "model" ? (modelColors[String(pt.key)] || THEME.accent) : clusterColor(Number(pt.key))} />
+                <Scatter data={attitudesImageryPoints} name="" shape={<BigDot />}>
+                  {attitudesImageryPoints.map((pt, i) => (
+                    <Cell key={`att-imm-cell-${pt.key}-${i}`} fill={pt.color} />
                   ))}
                 </Scatter>
               </ScatterChart>
             </ResponsiveContainer>
 
-            {/* Y compact selector */}
-            <div style={{ position: "absolute", left: 0, top: "calc(50% - 50px)", zIndex: 2, pointerEvents: "auto" }}>
+            {/* Y selector (Imagery) */}
+            <div style={{ position: "absolute", left: 0, top: "calc(50% - 70px)", zIndex: 2, pointerEvents: "auto" }}>
               <select
-                value={attYVar}
-                onChange={(e) => setAttYVar(e.target.value)}
+                value={imageryKey}
+                onChange={(e) => setImageryKey(e.target.value)}
                 style={{
-                  height: 24, width: 20, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`,
+                  height: 28, width: 20, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`,
                   background: THEME.panel, color: THEME.text, padding: "0 6px", outline: "none", cursor: "pointer",
                 }}
-                title="Select Y (WTP)"
+                title="Select Imagery attribute (Y)"
               >
-                {WTP_VARS.map((v) => <option key={v} value={v}>{varLabel(v)}</option>)}
+                {IMAGERY_OPTIONS.map((opt) => (
+                  <option key={opt.key} value={opt.key}>{opt.label}</option>
+                ))}
               </select>
             </div>
-            <div style={{ position: "absolute", left: -5, top: "54%", transform: "translateY(-50%) rotate(-90deg)", transformOrigin: "left top", zIndex: 1, pointerEvents: "none" }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: THEME.text }}>WTP</span>
+            <div style={{ position: "absolute", left: -5, top: "56%", transform: "translateY(-50%) rotate(-90deg)", transformOrigin: "left top", zIndex: 1, pointerEvents: "none" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: THEME.text }}>Imagery</span>
             </div>
-            {/* X selector */}
+
+            {/* X selector (Most Important Purchase Reason) */}
             <div style={{ position: "absolute", bottom: -1, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 6, pointerEvents: "auto" }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: THEME.text }}>Loyalty</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: THEME.text }}>Purchase Reason</span>
               <select
-                value={attXVar}
-                onChange={(e) => setAttXVar(e.target.value)}
+                value={prMostLabel}
+                onChange={(e) => setPrMostLabel(e.target.value)}
                 style={{
-                  height: 26, width: 400, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`,
+                  height: 26, width: 300, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`,
                   background: THEME.panel, color: THEME.text, padding: "0 6px", outline: "none", cursor: "pointer",
                 }}
               >
-                {LOYALTY_VARS.map((v) => <option key={v} value={v}>{varLabel(v)}</option>)}
+                {prMostOptions.map((lab) => (
+                  <option key={lab} value={lab}>{lab}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -1906,8 +2074,6 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
             </div>
 
             <div style={{ padding: 16, display: "grid", gap: 12 }}>
-
-              {/* NEW: Clustering explanation when opened from clusters */}
               {detailsSource === "clusters" && (
                 <div
                   style={{
@@ -1927,7 +2093,6 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 </div>
               )}
 
-              {/* Persona echo if selected */}
               {zoomCluster != null && (
                 <div style={{ background: THEME.panel, border: `1px solid ${THEME.border}`, borderRadius: 8, padding: 12 }}>
                   <div style={{ fontWeight: 700, marginBottom: 8 }}>Cluster Persona (C{zoomCluster})</div>
@@ -1939,7 +2104,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
         </div>
       )}
 
-      {/* ---- Existing Persona modal (unchanged) ---- */}
+      {/* ---- Persona modal ---- */}
       {showPersona && (
         <div
           role="dialog"
