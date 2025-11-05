@@ -12,6 +12,9 @@ import {
   AreaChart,
   Area,
   Cell,
+  PieChart,
+  Pie,
+  LabelList,
 } from "recharts";
 import suvPoints from "./data/suv_points.json";
 import puPoints from "./data/pu_points.json";
@@ -46,7 +49,11 @@ const FIXED_CLUSTER_COLORS = {
   2: "#FF7F0E", // C2 orange
   3: "#2CA02C", // C3 green
   4: "#D62728", // C4 red
+  5: "#A855F7", // C5 purple
+  6: "#FACC15", // C6 yellow
+  7: "#EC4899", // C7 pink
 };
+
 const clusterColor = (k) =>
   FIXED_CLUSTER_COLORS[k] ??
   SERIES_COLORS[(Number(k) - 1 + SERIES_COLORS.length) % SERIES_COLORS.length];
@@ -231,27 +238,24 @@ const PERSONA_BY_CLUSTER = {
       "Channel: Responds to straightforward price/value messaging",
     ],
   },
+
   1: {
-    title: "C1 • Tech-Forward Early Adopters",
-    summary:
-      "Eager to try new tech, high interest in ADAS and connected features. Comfortable paying extra for innovation.",
-    bullets: [
-      "Top motivations: Technology, innovation, prestige",
-      "Demographics: Skews 25–44, metro, higher income",
-      "Prefers: Feature bundles, subscription services",
-      "Channel: Digital-first, demo/experiential events",
-    ],
+    title: "The Everyday Explorer",
+    summary: (
+      <>
+        <strong>Loyalty, capability, and value.</strong> This group values freedom, comfort, and practicality and want
+         vehicles that fit an active, hands-on lifestyle. Mostly men in 
+        their mid-50s to mid-70s living in suburban or small-town settings, they are often semi-retired or in 
+        mid-management roles. They’re loyal to brands that align with their values and prioritize durability, 
+        practicality, and value for money, even if the model is a little more expensive.
+      </>
+    ),
   },
+
   2: {
-    title: "C2 • Adventure-Lifestyle",
+    title: "The Discerning Driver",
     summary:
-      "Outdoor-oriented profiles interested in utility, towing, and rugged looks—even if used on-road most of the time.",
-    bullets: [
-      "Top motivations: Utility, design, brand ethos",
-      "Demographics: Skews 30–50, active lifestyle",
-      "Prefers: All-terrain packages, roof racks, tow options",
-      "Channel: Visual storytelling with lifestyle imagery",
-    ],
+      "Affluent, style-driven suburban drivers. They seek luxury, performance, and safety over loyalty to any brand. They prefer European and Asian vehicles with AWD, strong handling, and refined design, valuing prestige and reliability as symbols of success. Confident and discerning, they’re willing to spend more for features that deliver comfort, power, and peace of mind.",
   },
   default: {
     title: "Cluster Persona",
@@ -288,7 +292,7 @@ const FIELD_GROUPS = {
   ],
 };
 
-/* ---------- NEW: Imagery options ---------- */
+/* ---------- Imagery options ---------- */
 const IMAGERY_OPTIONS = [
   { key: "IMAGE_BOLD", label: "Bold" },
   { key: "IMAGE_CLASSIC", label: "Classic" },
@@ -583,11 +587,8 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
   const [datasetMode, setDatasetMode] = useState("CORE");
   const [guideOpen, setGuideOpen] = useState(false);
   const [group, setGroup] = useState("SUV");
-
-  // Details dialog state
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [detailsSource, setDetailsSource] = useState(null); // 'clusters' | 'attitudes' | 'price' | 'map'
-
+  const [detailsSource, setDetailsSource] = useState(null);
   const [selectedModels, setSelectedModels] = useState([]);
   const [colorMode, setColorMode] = useState("model");
   const [zoomCluster, setZoomCluster] = useState(null);
@@ -595,6 +596,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
   const [selectedStateName, setSelectedStateName] = useState(null);
   const [showPersona, setShowPersona] = useState(false);
   const [selectedFieldGroup, setSelectedFieldGroup] = useState("Financing");
+  const [demoModel, setDemoModel] = useState(null);
 
   useEffect(() => {
     setZoomCluster(null);
@@ -771,6 +773,62 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
       return c ? { ...r, emb_x: lerp(r.raw_x, c.cx, centerT), emb_y: lerp(r.raw_y, c.cy, centerT) } : r;
     });
   }, [plotFrame, centroidsByGroup, centerT, colorMode]);
+  
+  // Stable row key (so sampling is deterministic across renders)
+  const rowKey = useCallback(
+    (r) => `${r.model}|${r.raw_x}|${r.raw_y}|${r.cluster}`,
+    []
+  );
+
+  // Find the largest cluster in the current view (ties → lowest cluster id)
+  const largestCluster = useMemo(() => {
+    const counts = new Map();
+    for (const r of plotFrame) {
+      counts.set(r.cluster, (counts.get(r.cluster) || 0) + 1);
+    }
+    let best = null;
+    let bestCount = -1;
+    for (const [k, c] of counts.entries()) {
+      if (c > bestCount || (c === bestCount && k < best)) {
+        best = k;
+        bestCount = c;
+      }
+    }
+    return best;
+  }, [plotFrame]);
+
+  // Build a deterministic keep-set with ~50% of points in the largest cluster,
+  // proportionally by model (exact per-model count via sorted hash)
+  const retainedKeys = useMemo(() => {
+    if (largestCluster == null) return null;
+
+    // Group rows (from the *full* plotFrame) by model, but only for largest cluster
+    const byModel = new Map();
+    for (const r of plotFrame) {
+      if (r.cluster !== largestCluster) continue;
+      const arr = byModel.get(r.model) || [];
+      arr.push(r);
+      byModel.set(r.model, arr);
+    }
+
+    // Deterministic selection: sort by hash of rowKey, then take first 50%
+    const keep = new Set();
+    for (const [, arr] of byModel) {
+      const sorted = [...arr].sort((a, b) => hashStr(rowKey(a)) - hashStr(rowKey(b)));
+      const keepN = Math.ceil(sorted.length * 0.5); // half, rounded up
+      for (let i = 0; i < keepN; i++) keep.add(rowKey(sorted[i]));
+    }
+    return keep;
+  }, [plotFrame, largestCluster, rowKey]);
+
+  // Final points used *only for rendering the scatter* (all analytics still use full data)
+  const plotDataForRender = useMemo(() => {
+    if (!retainedKeys || largestCluster == null) return plotDataCentered;
+    // Filter the centered points, but keep full sets for non-largest clusters
+    return plotDataCentered.filter(
+      (r) => r.cluster !== largestCluster || retainedKeys.has(rowKey(r))
+    );
+  }, [plotDataCentered, largestCluster, retainedKeys, rowKey]);
 
   const groupKeys = useMemo(() => {
     const g = new Set(plotDataCentered.map((r) => r[groupingKey]));
@@ -782,13 +840,13 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
 
   const series = useMemo(() => {
     const buckets = new Map();
-    for (const r of plotDataCentered) {
+    for (const r of plotDataForRender) {
       const k = colorMode === "cluster" ? r.cluster : String(r.model);
       if (!buckets.has(k)) buckets.set(k, []);
       buckets.get(k).push(r);
     }
     return groupKeys.map((k) => ({ key: k, data: buckets.get(k) || [] }));
-  }, [plotDataCentered, groupKeys, colorMode]);
+  }, [plotDataForRender, groupKeys, colorMode]);
 
   const modelsInScope = useMemo(() => {
     const set = new Set();
@@ -796,8 +854,85 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
     return Array.from(set).sort();
   }, [plotFrame]);
 
-  const [demoModel, setDemoModel] = useState(null);
+  // ---- Cluster-level snapshot (price, gender, age, occupation, location, income, education, hobbies)
+  const clusterSnapshot = useMemo(() => {
+    if (zoomCluster == null) return null;
+    const subset = baseByModel.filter(r => r.cluster === zoomCluster);
+    const total = subset.length;
+    if (!total) return null;
+
+    const labelOf = (row, field) => {
+      const lab = resolveMappedLabel(row, field, demoLookups);
+      const s = (lab ?? "").toString().trim();
+      return s ? s : null;
+    };
+
+    const tally = (field) => {
+      const m = new Map();
+      for (const r of subset) {
+        const k = labelOf(r, field);
+        if (!k) continue;
+        m.set(k, (m.get(k) || 0) + 1);
+      }
+      return m;
+    };
+
+    const topN = (m, n) =>
+      Array.from(m.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, n)
+        .map(([label, count]) => ({ label, pct: Math.round((count * 100) / total) }));
+
+    const incomeMap = (() => {
+      const m1 = tally("DEMO_INCOME_BUCKET");
+      if (m1.size) return m1;
+      const m2 = tally("DEMO_INCOME");
+      if (m2.size) return m2;
+      return tally("DEMO_INCOME_LABEL");
+    })();
+
+    return {
+      total,
+      genderTop2: topN(tally("DEMO_GENDER1"), 2),
+      ageTop1: topN(tally("BLD_AGE_GRP"), 1),
+      occupTop3: topN(tally("DEMO_EMPLOY"), 3),
+      locTop2: topN(tally("DEMO_LOCATION"), 2),
+      incomeTop: topN(incomeMap, 3),
+      eduTop2: topN(tally("DEMO_EDUCATION"), 2),
+      hobbyTop3: topN(tally("BLD_HOBBY1_GRP"), 3),
+    };
+  }, [baseByModel, zoomCluster, demoLookups]);
+
   useEffect(() => { if (demoModel && !modelsInScope.includes(demoModel)) setDemoModel(null); }, [modelsInScope, demoModel]);
+
+  // % of respondents by model within the zoomed cluster
+  const clusterModelShare = useMemo(() => {
+    if (zoomCluster == null) return { data: [], total: 0 };
+
+    // follow the same filters you’re comparing against
+    const base = demoModel ? scopeRows.filter(r => r.model === demoModel) : scopeRows;
+
+    const rowsInCluster = base.filter(r => r.cluster === zoomCluster);
+    const total = rowsInCluster.length || 0;
+    if (!total) return { data: [], total: 0 };
+
+    const counts = new Map();
+    for (const r of rowsInCluster) {
+      const m = String(r.model);
+      counts.set(m, (counts.get(m) || 0) + 1);
+    }
+
+    // top 8 + Other
+    const sorted = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+    const top = sorted.slice(0, 8);
+    const other = sorted.slice(8).reduce((s, [, c]) => s + c, 0);
+
+    const data = top.map(([name, c]) => ({ name, count: c, value: (c / total) * 100 }));
+    if (other > 0) data.push({ name: "Other", count: other, value: (other / total) * 100 });
+
+    return { data, total };
+  }, [scopeRows, demoModel, zoomCluster]);
+
 
   /* Left chart controls */
   const LOYALTY_VARS = FIELD_GROUPS.Loyalty;
@@ -1400,9 +1535,8 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart margin={{ top: 14, right: 0, left: 0, bottom: 0 }}>
                 <CartesianGrid stroke={THEME.border} strokeDasharray="4 6" />
-                <XAxis type="number" dataKey="emb_x" domain={targetX} tickFormatter={() => ""} tickLine={false} axisLine={false} tickMargin={0} />
-                <YAxis type="number" dataKey="emb_y" domain={targetY} tickFormatter={() => ""} tickLine={false} axisLine={false} tickMargin={0} />
-
+                <XAxis type="number" dataKey="emb_x" domain={animX} tickFormatter={() => ""} tickLine={false} axisLine={false} tickMargin={0} />
+                <YAxis type="number" dataKey="emb_y" domain={animY} tickFormatter={() => ""} tickLine={false} axisLine={false} tickMargin={0} />
                 {series.map((s) => {
                   const k = s.key;
                   const data = s.data;
@@ -1671,16 +1805,18 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           }}
         >
           <button
-            onClick={() => { setDetailsSource("attitudes"); setDetailsOpen(true); }}
+            onClick={() => { setDetailsSource("imagery"); setDetailsOpen(true); }}
             title="Open detailed view"
             style={{
               position: "absolute", top: 10, left: 10, zIndex: 2,
               background: THEME.panel, color: THEME.text, border: `1px solid ${THEME.border}`,
-              borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+              borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
             }}
           >
             Details
           </button>
+
           <button
             onClick={() => setAttLocked((v) => !v)}
             title={attLocked ? "Unlock — follow filters" : "Lock — show full population"}
@@ -2060,7 +2196,22 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 background: THEME.bg, borderTopLeftRadius: 12, borderTopRightRadius: 12, zIndex: 1,
               }}
             >
-              <div style={{ fontWeight: 800, fontSize: 18 }}>Core Clusters</div>
+
+              <div style={{ fontWeight: 800, fontSize: 18 }}>
+                {detailsSource === "clusters"
+                  ? "Clustering UMAP Scatter Plot"
+                  : detailsSource === "attitudes"
+                  ? "Customer Loyalty & Willingness to Pay"
+                  : detailsSource === "imagery"
+                  ? "Most Important Purchase Reason & Imagery"
+                  : detailsSource === "price"
+                  ? "Transaction Price Distribution"
+                  : detailsSource === "map"
+                  ? "State of Residence Map"
+                  : "Details"}
+              </div>
+
+
               <button
                 onClick={() => { setDetailsOpen(false); setDetailsSource(null); }}
                 style={{
@@ -2080,9 +2231,6 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                     padding: "10px 12px", background: THEME.panel, border: `1px solid ${THEME.border}`, borderRadius: 8,
                   }}
                 >
-                  <div style={{ fontWeight: 700, marginBottom: 6 }}>
-                    Clustering UMAP Scatter Plot
-                  </div>
                   <div style={{ fontSize: 14, opacity: 0.9, lineHeight: 1.6 }}>
                     A UMAP projection transforms many variables into a 2D picture so nearby
                     points are more similar than distant ones. Each point is a respondent;
@@ -2093,12 +2241,82 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 </div>
               )}
 
+              {detailsSource === "attitudes" && (
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    background: THEME.panel,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 14, opacity: 0.9, lineHeight: 1.6 }}>
+                    This chart compares each cluster or model’s share of customers who agree with selected
+                    <i> loyalty statements </i> against their agreement with <i> willingness-to-pay factors.</i> Each dot represents a group’s percentage of respondents showing positive sentiment on both dimensions.
+                    Use the dropdowns on the X and Y axes to explore how loyalty and price sensitivity interact
+                    across customer segments.
+                  </div>
+                </div>
+              )}
+
+              {detailsSource === "imagery" && (
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    background: THEME.panel,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 14, opacity: 0.9, lineHeight: 1.6 }}>
+                    Each dot shows a cluster or model’s share of respondents who selected the chosen
+                    <i> Most Important Purchase Reason </i> (X-axis) versus the share who agree with the
+                    selected <i> Imagery </i> statement (Y-axis). Use the dropdowns on the X and Y axes to explore relationships between
+                    why customers purchase their vehicle and how they view it.
+                  </div>
+                </div>
+              )}
+
+              {detailsSource === "price" && (
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    background: THEME.panel,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 14, opacity: 0.9, lineHeight: 1.6 }}>
+                    This chart shows how respondents within each cluster or model are distributed across different purchase price ranges (Under $30k → $110k+). Lines indicate the distribution shape, and you can use the color toggle to view by
+                    <i> Cluster</i> or <i> Model</i>. The hover tooltips shows percent and count per bucket.
+                  </div>
+                </div>
+              )}
+
+              {detailsSource === "map" && (
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    background: THEME.panel,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 14, opacity: 0.9, lineHeight: 1.6 }}>
+                    This map highlights the geographic distribution of respondents by state. Brighter shades
+                    represent states with a higher share of respondents in the current selection. Click on
+                    any state to filter other panels to residents from that state, or use the Clear button to reset.
+                  </div>
+                </div>
+              )}
+
               {zoomCluster != null && (
                 <div style={{ background: THEME.panel, border: `1px solid ${THEME.border}`, borderRadius: 8, padding: 12 }}>
                   <div style={{ fontWeight: 700, marginBottom: 8 }}>Cluster Persona (C{zoomCluster})</div>
                   <div style={{ fontSize: 14, opacity: 0.9 }}>{getPersonaForCluster(zoomCluster).summary}</div>
                 </div>
               )}
+              
             </div>
           </div>
         </div>
@@ -2157,34 +2375,188 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 return (
                   <>
                     <div style={{ padding: "10px 12px", background: THEME.panel, border: `1px solid ${THEME.border}`, borderRadius: 8 }}>
-                      <div style={{ fontSize: 14, opacity: 0.9 }}>{persona.summary}</div>
+                      <div style={{ fontSize: 14, opacity: 0.9, whiteSpace: "pre-line" }}>{persona.summary}</div>
                     </div>
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <span style={{ padding: "6px 10px", borderRadius: 999, fontSize: 12, border: `1px solid ${THEME.border}`, background: THEME.panel }}>
-                        Cluster: C{String(zoomCluster)}
-                      </span>
-                      <span style={{ padding: "6px 10px", borderRadius: 999, fontSize: 12, border: `1px solid ${THEME.border}`, background: THEME.panel }}>
-                        Points shown: {plotFrame.length.toLocaleString()}
-                      </span>
-                      <span style={{ padding: "6px 10px", borderRadius: 999, fontSize: 12, border: `1px solid ${THEME.border}`, background: THEME.panel }}>
-                        Color by: {colorMode === "cluster" ? "Cluster" : "Model"}
-                      </span>
+                    {/* --- Cluster Facts (manual placeholders) --- */}
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 12,
+                        alignItems: "stretch",
+                      }}
+                    >
+                      {/* LEFT: Persona image */}
+                      <div
+                        style={{
+                          flex: "1 1 50%",
+                          background: THEME.panel,
+                          border: `1px solid ${THEME.border}`,
+                          borderRadius: 8,
+                          height: "100%",
+                          overflow: "hidden",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <img
+                          src={
+                            zoomCluster === 2
+                              ? "/personas/suv-cluster-2.png"
+                              : "/personas/suv-cluster-1.png"
+                          }
+                          alt={`Cluster ${zoomCluster} persona visual`}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                          }}
+                        />
+                      </div>
+
+                      {/* RIGHT: Cluster Facts */}
+                      <div
+                        style={{
+                          flex: "1 1 50%",
+                          background: THEME.panel,
+                          border: `1px solid ${THEME.border}`,
+                          borderRadius: 8,
+                          padding: 12,
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 26, marginLeft: 8, }}>Group Details</div>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "80px 1fr",
+                            rowGap: 8,
+                            columnGap: 8,
+                            alignItems: "start",
+                            lineHeight: 2,
+                          }}
+                        >
+                          <div style={{ color: THEME.muted, fontSize: 14, fontWeight: 600, marginLeft: 8, }}>Gender:</div>
+                          <div style={{ color: THEME.text, fontSize: 14, fontWeight: 700 }}>70% male / 30% female</div>
+
+                          <div style={{ color: THEME.muted, fontSize: 14, fontWeight: 600, marginLeft: 8, }}>Age:</div>
+                          <div style={{ color: THEME.text, fontSize: 14, fontWeight: 700 }}>55-75 years old</div>
+
+                          <div style={{ color: THEME.muted, fontSize: 14, fontWeight: 600, marginLeft: 8, }}>Location:</div>
+                          <div style={{ color: THEME.text, fontSize: 14, fontWeight: 700 }}>Suburban or small town</div>
+
+                          <div style={{ color: THEME.muted, fontSize: 14, fontWeight: 600, marginLeft: 8, }}>Occupation:</div>
+                          <div style={{ color: THEME.text, fontSize: 14, fontWeight: 700 }}>Semi-retired or mid-level manager</div>
+
+                          <div style={{ color: THEME.muted, fontSize: 14, fontWeight: 600, marginLeft: 8, }}>Income:</div>
+                          <div style={{ color: THEME.text, fontSize: 14, fontWeight: 700 }}>$150k - $250k</div>
+
+                          <div style={{ color: THEME.muted, fontSize: 14, fontWeight: 600, marginLeft: 8, }}>Hobbies:</div>
+                          <div style={{ color: THEME.text, fontSize: 14, fontWeight: 700 }}>Leisure, physical, and outdoors</div>
+                        </div>
+                      </div>
                     </div>
 
-                    <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
-                      <div style={{ background: THEME.panel, border: `1px solid ${THEME.border}`, borderRadius: 8, padding: 12 }}>
-                        <div style={{ fontWeight: 700, marginBottom: 8 }}>Messaging Angles</div>
-                        <div style={{ fontSize: 14, opacity: 0.9 }}>
-                          • Value-first CTA<br />• Tech/features demo<br />• Lifestyle visual story
-                        </div>
+
+
+                    {/* Donut: % of respondents by current model within this cluster */}
+                    <div
+                      style={{
+                        background: THEME.panel,
+                        border: `1px solid ${THEME.border}`,
+                        borderRadius: 8,
+                        padding: 12,
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, marginBottom: 12, textAlign: "center" }}>
+                        Model Ownership Mix
                       </div>
-                      <div style={{ background: THEME.panel, border: `1px solid ${THEME.border}`, borderRadius: 8, padding: 12 }}>
-                        <div style={{ fontWeight: 700, marginBottom: 8 }}>Feature Priorities</div>
-                        <div style={{ fontSize: 14, opacity: 0.9 }}>
-                          • ADAS package<br />• Connectivity + app<br />• Towing/utility options
+
+                      {clusterModelShare.total === 0 ? (
+                        <div style={{ fontSize: 12, opacity: 0.75 }}>
+                          No respondents available for this cluster.
                         </div>
-                      </div>
+                      ) : (
+                        (() => {
+                          const sortedData = [...clusterModelShare.data].sort((a, b) => b.value - a.value);
+                          return (
+                            <div style={{ width: "100%", height: 260 }}>
+                              <ResponsiveContainer>
+                                <PieChart>
+                                  <Pie
+                                    data={sortedData}
+                                    dataKey="value"
+                                    nameKey="name"
+                                    innerRadius={64}
+                                    outerRadius={100}
+                                    stroke={THEME.bg}
+                                    strokeWidth={1}
+                                    startAngle={90}      /* 12 o’clock */
+                                    endAngle={-270}      /* clockwise */
+                                    labelLine={true}
+                                    /* OUTSIDE label: vehicle name only */
+                                    label={({ name, cx, cy, midAngle, outerRadius }) => {
+                                      const RAD = Math.PI / 180;
+                                      const r = outerRadius + 20; // push name outside the slice
+                                      const x = cx + r * Math.cos(-midAngle * RAD);
+                                      const y = cy + r * Math.sin(-midAngle * RAD);
+                                      return (
+                                        <text
+                                          x={x}
+                                          y={y}
+                                          textAnchor={x > cx ? "start" : "end"}
+                                          dominantBaseline="central"
+                                          style={{ fill: THEME.text, fontSize: 12, fontWeight: 600 }}
+                                        >
+                                          {name}
+                                        </text>
+                                      );
+                                    }}
+                                  >
+                                    {sortedData.map((d, i) => {
+                                      const color =
+                                        d.name === "Other" ? THEME.muted : (modelColors[d.name] || THEME.accent);
+                                      return <Cell key={`slice-${d.name}-${i}`} fill={color} />;
+                                    })}
+
+                                    {/* INSIDE label: rounded percentage */}
+                                    <LabelList
+                                      dataKey="value"
+                                      position="inside"
+                                      formatter={(v) => `${Math.round(v)}%`}
+                                      style={{ fontSize: 11, fontWeight: 700, fill: "#ffffff" }}
+                                    />
+                                  </Pie>
+
+
+                                  {/* Center label */}
+                                  <g>
+                                    <text
+                                      x="50%"
+                                      y="50%"
+                                      textAnchor="middle"
+                                      dominantBaseline="middle"
+                                      style={{ fill: THEME.text, fontWeight: 800, fontSize: 24 }}
+                                    >
+                                      {clusterModelShare.total.toLocaleString()}
+                                    </text>
+                                    <text
+                                      x="50%"
+                                      y="50%"
+                                      dy="1.2em"
+                                      textAnchor="middle"
+                                      dominantBaseline="hanging"
+                                      style={{ fill: THEME.muted, fontSize: 11 }}
+                                    >
+                                      Customers
+                                    </text>
+                                  </g>
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+                          );
+                        })()
+                      )}
                     </div>
                   </>
                 );
