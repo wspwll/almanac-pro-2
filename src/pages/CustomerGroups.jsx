@@ -2024,28 +2024,8 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
             fontSize: 12,
           }}
         >
-          Best x–y combos (R²)
+          Compute Optimal Pairs
         </button>
-
-        {bestLeftInfo && (
-          <div style={{ fontSize: 12, color: THEME.muted }}>
-            Left&nbsp;{axisTypeLabel(bestLeftInfo.xType)}×{axisTypeLabel(bestLeftInfo.yType)}:&nbsp;
-            <b style={{ color: THEME.text }}>
-              {labelForOption(bestLeftInfo.xType, bestLeftInfo.xKey)} × {labelForOption(bestLeftInfo.yType, bestLeftInfo.yKey)}
-            </b>
-            &nbsp;• R²={bestLeftInfo.r2.toFixed(2)}
-          </div>
-        )}
-        {bestRightInfo && (
-          <div style={{ fontSize: 12, color: THEME.muted }}>
-            2nd&nbsp;{axisTypeLabel(bestRightInfo.xType)}×{axisTypeLabel(bestRightInfo.yType)}:&nbsp;
-            <b style={{ color: THEME.text }}>
-              {labelForOption(bestRightInfo.xType, bestRightInfo.xKey)} × {labelForOption(bestRightInfo.yType, bestRightInfo.yKey)}
-            </b>
-            &nbsp;• R²={bestRightInfo.r2.toFixed(2)}
-          </div>
-        )}
-
       </div>
 
       
@@ -2206,7 +2186,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
             </ResponsiveContainer>
 
             {/* Y-axis type (left, compact) */}
-            <div style={{ position: "absolute", left: 0, top: "calc(50% - 50px)", zIndex: 2 }}>
+            <div style={{ position: "absolute", left: 0, top: 10, zIndex: 2 }}>
               <select
                 value={c1yType}
                 onChange={(e) => {
@@ -2215,18 +2195,18 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                   const opts = optionsForAxisType(t, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel });
                   setC1yKey((opts[0]?.value) || "");
                 }}
-                style={{ height: 24, width: 22, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
+                style={{ height: 28, width: 22, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
                 title="Y axis: pick category"
               >
                 {AXIS_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
             </div>
-            {/* Y-axis key (under label) */}
-            <div style={{ position: "absolute", left: 28, top: "calc(50% - 50px)", zIndex: 2 }}>
+            {/* Y-axis key */}
+            <div style={{ position: "absolute", left: 28, top: 10, zIndex: 2 }}>
               <select
                 value={c1yKey}
                 onChange={(e) => setC1yKey(e.target.value)}
-                style={{ height: 24, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
+                style={{ height: 28, width: 22, ontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
                 title="Y axis: pick variable"
               >
                 {optionsForAxisType(c1yType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
@@ -2328,12 +2308,14 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
 
           {/* RIGHT chart body */}
           <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+
             {/* top label */}
             <div style={{ position: "absolute", top: 0, left: "50%", width: "70%", transform: "translateX(-50%)", fontStyle: "italic", fontWeight: 600, color: THEME.muted, fontSize: 10, textAlign: "center" }}>
-              {prMostLabel || "Most Important Purchase Reason"}
+              {labelForOption(c2xType, c2xKey)}
               <span style={{ fontStyle: "normal", fontWeight: 400, margin: "0 6px" }}>×</span>
-              {IMAGERY_OPTIONS.find(o => o.key === imageryKey)?.label || "Imagery"}
+              {labelForOption(c2yType, c2yKey)}
             </div>
+
             {immTrendOn && trendB && (
               <div style={{ position: "absolute", top: 8, right: 30, fontSize: 12, fontWeight: 700, color: THEME.muted }}>
                 R²: <span style={{ color: THEME.text }}>{trendB.r2.toFixed(2)}</span>
@@ -2355,7 +2337,6 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                   tick={{ fill: THEME.muted, fontSize: 12 }}
                   stroke={THEME.border}
                   domain={axDomainB}
-                  label={{ value: "Most Important Purchase Reason", position: "bottom", fill: THEME.text, fontSize: 12 }}
                 />
                 <YAxis
                   type="number"
@@ -2414,7 +2395,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
             </ResponsiveContainer>
 
             {/* Y-axis (right chart) */}
-            <div style={{ position: "absolute", left: 0, top: "calc(50% - 70px)", zIndex: 2 }}>
+            <div style={{ position: "absolute", left: 0, top: 10, zIndex: 2 }}>
               <select
                 value={c2yType}
                 onChange={(e) => {
@@ -2429,11 +2410,11 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 {AXIS_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
             </div>
-            <div style={{ position: "absolute", left: 28, top: "calc(50% - 70px)", zIndex: 2 }}>
+            <div style={{ position: "absolute", left: 28, top: 10, zIndex: 2 }}>
               <select
                 value={c2yKey}
                 onChange={(e) => setC2yKey(e.target.value)}
-                style={{ height: 28, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
+                style={{ height: 28, width: 22, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
                 title="Y axis: pick variable"
               >
                 {optionsForAxisType(c2yType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
