@@ -23,7 +23,7 @@ import largePuPoints from "./data/large_pu_points.json";
 import demosMapping from "./data/demos-mapping.json";
 import codeToTextMapRaw from "./data/code-to-text-map.json";
 import { ComposableMap, Geographies, Geography } from "react-simple-maps";
-import { Lock, Unlock, ChevronDown, ChevronUp, TrendingUp } from "lucide-react";
+import { ChevronDown, ChevronUp, TrendingUp } from "lucide-react";
 
 /* ---- Local series palette (renamed to avoid clashing with THEME.COLORS) ---- */
 const SERIES_COLORS = [
