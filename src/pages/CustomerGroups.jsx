@@ -23,7 +23,7 @@ import largePuPoints from "./data/large_pu_points.json";
 import demosMapping from "./data/demos-mapping.json";
 import codeToTextMapRaw from "./data/code-to-text-map.json";
 import { ComposableMap, Geographies, Geography } from "react-simple-maps";
-import { Lock, Unlock, ChevronDown, ChevronUp } from "lucide-react";
+import { Lock, Unlock, ChevronDown, ChevronUp, TrendingUp } from "lucide-react";
 
 /* ---- Local series palette (renamed to avoid clashing with THEME.COLORS) ---- */
 const SERIES_COLORS = [
@@ -376,6 +376,119 @@ function coercePrice(v) {
   return Number.isFinite(n) ? n : NaN;
 }
 
+// ---- Linear regression helpers (least squares) ----
+function linearRegressionXY(points) {
+  // points: array of { x: number, y: number }
+  const pts = points.filter(p => Number.isFinite(p?.x) && Number.isFinite(p?.y));
+  const n = pts.length;
+  if (n < 2) return null;
+
+  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+  for (const { x, y } of pts) {
+    sumX += x; sumY += y;
+    sumXY += x * y;
+    sumXX += x * x;
+  }
+  const denom = (n * sumXX - sumX * sumX);
+  if (denom === 0) return null;
+
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+
+  // R² = 1 - SS_res / SS_tot
+  const meanY = sumY / n;
+  let ssRes = 0, ssTot = 0;
+  for (const { x, y } of pts) {
+    const yHat = slope * x + intercept;
+    ssRes += (y - yHat) * (y - yHat);
+    ssTot += (y - meanY) * (y - meanY);
+  }
+  const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+
+  return { slope, intercept, r2 };
+}
+
+function buildTrend(points, xDomain) {
+  const reg = linearRegressionXY(points);
+  if (!reg || !xDomain || !Number.isFinite(xDomain[0]) || !Number.isFinite(xDomain[1])) return null;
+  const [x0, x1] = xDomain[0] <= xDomain[1] ? xDomain : [xDomain[1], xDomain[0]];
+  return {
+    line: [
+      { x: x0, y: reg.intercept + reg.slope * x0 },
+      { x: x1, y: reg.intercept + reg.slope * x1 },
+    ],
+    r2: reg.r2,
+  };
+}
+
+function insetTrendEndpoint(trend, xDomain, yDomain, xPct = 0.05, yPct = 0.04) {
+  if (!trend || !trend.line || trend.line.length !== 2) return null;
+  const [d0, d1] = xDomain[0] <= xDomain[1] ? xDomain : [xDomain[1], xDomain[0]];
+  const spanX = d1 - d0 || 1;
+  const x = d1 - spanX * xPct; // move left by xPct of domain width
+  const [p0, p1] = trend.line;
+  const m = (p1.y - p0.y) / ((p1.x - p0.x) || 1e-9);
+  const b = p0.y - m * p0.x;
+  const yBase = m * x + b;
+
+  // shift label slightly upward (based on y-domain height)
+  const [y0, y1] = yDomain || [0, 100];
+  const spanY = y1 - y0 || 1;
+  const y = yBase + spanY * yPct;
+
+  return { x, y };
+}
+
+// --- Pick the best (x,y) for LEFT chart (Loyalty × WTP) ---
+function bestAttitudesCombo({
+  rows, groupBy, loyaltyVars, wtpVars, demoLookups, colorMode, modelColors, accent
+}) {
+  let best = { xVar: null, yVar: null, r2: -1 };
+  for (const xVar of loyaltyVars) {
+    for (const yVar of wtpVars) {
+      const pts = buildAttitudesPointsOnePass(
+        rows, groupBy, xVar, yVar, demoLookups, colorMode, modelColors, accent
+      ).map(p => ({ x: p.x, y: p.y }));
+      const reg = linearRegressionXY(pts);
+      if (reg && Number.isFinite(reg.r2) && reg.r2 > best.r2) {
+        best = { xVar, yVar, r2: reg.r2 };
+      }
+    }
+  }
+  return best.r2 >= 0 ? best : null;
+}
+
+// --- Pick the best (x,y) for RIGHT chart (PR_MOST × Imagery) ---
+function bestImageryCombo({
+  rows, groupBy, prMostOptions, imageryOptions, demoLookups, colorMode, modelColors, accent
+}) {
+  let best = { prLabel: null, imgKey: null, r2: -1 };
+
+  for (const prLabel of prMostOptions) {
+    for (const img of imageryOptions) {
+      const byGroup = new Map();
+      for (const r of rows) {
+        const gk = groupBy === "cluster" ? r.cluster : String(r.model);
+        if (!byGroup.has(gk)) byGroup.set(gk, []);
+        byGroup.get(gk).push(r);
+      }
+      const pts = [];
+      for (const [, gr] of byGroup.entries()) {
+        const x = purchaseReasonPercent(gr, prLabel, demoLookups);
+        const y = imageryPercent(gr, img.key);
+        if (x != null && y != null && Number.isFinite(x) && Number.isFinite(y)) {
+          pts.push({ x, y });
+        }
+      }
+      const reg = linearRegressionXY(pts);
+      if (reg && Number.isFinite(reg.r2) && reg.r2 > best.r2) {
+        best = { prLabel, imgKey: img.key, r2: reg.r2 };
+      }
+    }
+  }
+  return best.r2 >= 0 ? best : null;
+}
+
 const BUCKET_MIN = 30000;
 const BUCKET_STEP = 5000;
 const OVER_MIN = 110000;
@@ -539,7 +652,6 @@ function buildAttitudesPointsOnePass(
 }
 
 /* ---------- NEW: % Agree for Imagery (Y) and % selecting PR_MOST (X) ---------- */
-/** Imagery %Agree among filtered rows: only value === 1 counts as agree; 0 or missing = not agree */
 function imageryPercent(rows, imageryKey) {
   if (!rows || rows.length === 0) return null;
   let agree = 0;
@@ -549,7 +661,6 @@ function imageryPercent(rows, imageryKey) {
   }
   return (agree / rows.length) * 100;
 }
-/** Purchase Reason % selecting the chosen label among filtered rows */
 function purchaseReasonPercent(rows, labelWanted, demoLookups) {
   if (!rows || rows.length === 0 || !labelWanted) return null;
   let sel = 0;
@@ -559,6 +670,76 @@ function purchaseReasonPercent(rows, labelWanted, demoLookups) {
   }
   return (sel / rows.length) * 100;
 }
+
+/* ---------- Axis registries ---------- */
+const AXIS_TYPES = [
+  { id: "loyalty", label: "Loyalty" },
+  { id: "wtp",     label: "Willingness to Pay" },
+  { id: "pr",      label: "Purchase Reason" },
+  { id: "img",     label: "Imagery" },
+];
+const axisTypeLabel = (id) => AXIS_TYPES.find(t => t.id === id)?.label || id;
+
+function optionsForAxisType(type, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel }) {
+  if (type === "loyalty") return LOYALTY_VARS.map(v => ({ value: v, label: varLabel(v) }));
+  if (type === "wtp")     return WTP_VARS.map(v => ({ value: v, label: varLabel(v) }));
+  if (type === "pr")      return prMostOptions.map(lab => ({ value: lab, label: lab }));
+  if (type === "img")     return IMAGERY_OPTIONS.map(o => ({ value: o.key, label: o.label }));
+  return [];
+}
+
+const axis = (id) => (AXIS_TYPES.find(t => t.id === id)?.name ?? AXIS_TYPES.find(t => t.id === id)?.label ?? id);
+
+/* ---------- Percent calculators for each axis type ---------- */
+function percentForAxis(rows, axis, demoLookups) {
+  if (!rows || !rows.length || !axis) return NaN;
+
+  if (axis.type === "loyalty" || axis.type === "wtp") {
+    const varName = axis.key;
+    const policy = agreePolicyFor(varName);
+    let agree = 0, valid = 0, miss = 0;
+    for (const r of rows) {
+      const lab = resolveMappedLabel(r, varName, demoLookups);
+      if (lab == null || String(lab).trim() === "") { miss++; continue; }
+      valid++;
+      if (isTopNAgree(lab, policy)) agree++;
+    }
+    const den = valid + miss;
+    return den ? (agree / den) * 100 : NaN;
+  }
+
+  if (axis.type === "pr") {
+    return purchaseReasonPercent(rows, axis.key, demoLookups) ?? NaN;
+  }
+
+  if (axis.type === "img") {
+    return imageryPercent(rows, axis.key) ?? NaN;
+  }
+
+  return NaN;
+}
+
+/* ---------- Build points for any (xAxis, yAxis) pair ---------- */
+function buildUnifiedPoints(rows, groupBy, xAxis, yAxis, demoLookups, colorMode, modelColors, accent) {
+  const byGroup = new Map();
+  for (const r of rows) {
+    const gk = groupBy === "cluster" ? r.cluster : String(r.model);
+    if (!byGroup.has(gk)) byGroup.set(gk, []);
+    byGroup.get(gk).push(r);
+  }
+
+  const pts = [];
+  for (const [gk, gr] of byGroup.entries()) {
+    const x = percentForAxis(gr, xAxis, demoLookups);
+    const y = percentForAxis(gr, yAxis, demoLookups);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const name = groupBy === "cluster" ? `C${gk}` : String(gk);
+    const color = (colorMode === "cluster") ? clusterColor(Number(gk)) : (modelColors[String(gk)] || accent);
+    pts.push({ key: gk, name, x, y, n: gr.length, color });
+  }
+  return pts;
+}
+
 
 function useAnimationToken(deps) { return React.useMemo(() => deps.join("::"), deps); }
 
@@ -597,6 +778,10 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
   const [showPersona, setShowPersona] = useState(false);
   const [selectedFieldGroup, setSelectedFieldGroup] = useState("Financing");
   const [demoModel, setDemoModel] = useState(null);
+  const [attTrendOn, setAttTrendOn] = useState(false);  // Left scatter (Loyalty × WTP)
+  const [immTrendOn, setImmTrendOn] = useState(false);  // Right scatter (PR_MOST × Imagery)
+  const [bestLeftInfo, setBestLeftInfo] = useState(null);   // { xVar, yVar, r2 }
+  const [bestRightInfo, setBestRightInfo] = useState(null); // { prLabel, imgKey, r2 }
 
   useEffect(() => {
     setZoomCluster(null);
@@ -909,7 +1094,6 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
   const clusterModelShare = useMemo(() => {
     if (zoomCluster == null) return { data: [], total: 0 };
 
-    // follow the same filters you’re comparing against
     const base = demoModel ? scopeRows.filter(r => r.model === demoModel) : scopeRows;
 
     const rowsInCluster = base.filter(r => r.cluster === zoomCluster);
@@ -922,7 +1106,6 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
       counts.set(m, (counts.get(m) || 0) + 1);
     }
 
-    // top 8 + Other
     const sorted = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
     const top = sorted.slice(0, 8);
     const other = sorted.slice(8).reduce((s, [, c]) => s + c, 0);
@@ -933,12 +1116,15 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
     return { data, total };
   }, [scopeRows, demoModel, zoomCluster]);
 
-
   /* Left chart controls */
   const LOYALTY_VARS = FIELD_GROUPS.Loyalty;
   const WTP_VARS = FIELD_GROUPS["Willingness to Pay"];
+
+
   const [attXVar, setAttXVar] = useState(LOYALTY_VARS[0]);
   const [attYVar, setAttYVar] = useState(WTP_VARS[0]); // LEFT chart Y
+
+
 
   /* Right chart controls */
   const [imageryKey, setImageryKey] = useState(IMAGERY_OPTIONS[0].key);
@@ -960,9 +1146,42 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
     }
   }, [prMostOptions, prMostLabel]);
 
-  const [attLocked, setAttLocked] = useState(false);
-  const [priceLocked, setPriceLocked] = useState(false);
-  const [mapLocked, setMapLocked] = useState(false);
+  const labelForOption = useCallback(
+  (type, key) => {
+    const opts = optionsForAxisType(type, {
+      LOYALTY_VARS,
+      WTP_VARS,
+      prMostOptions,
+      IMAGERY_OPTIONS,
+      varLabel,
+    });
+    return opts.find(o => o.value === key)?.label || String(key);
+  },
+  [LOYALTY_VARS, WTP_VARS, prMostOptions, varLabel]
+);
+
+
+  // Chart A (left) axis configs
+  const [c1xType, setC1xType] = useState("loyalty");
+  const [c1xKey,  setC1xKey]  = useState(LOYALTY_VARS[0]);
+  const [c1yType, setC1yType] = useState("wtp");
+  const [c1yKey,  setC1yKey]  = useState(WTP_VARS[0]);
+
+  // Chart B (right) axis configs
+  const [c2xType, setC2xType] = useState("pr");
+  const [c2xKey,  setC2xKey]  = useState(""); // set when PR options are ready
+  const [c2yType, setC2yType] = useState("img");
+  const [c2yKey,  setC2yKey]  = useState(IMAGERY_OPTIONS[0].key);
+
+  // Initialize c2xKey when PR options appear
+  useEffect(() => {
+    if (!c2xKey && prMostOptions.length) setC2xKey(prMostOptions[0]);
+  }, [c2xKey, prMostOptions]);
+
+  // Keep permanently locked, but retain the toggle code commented out in the UI
+  const [attLocked, setAttLocked] = useState(true);
+  const [priceLocked, setPriceLocked] = useState(true);
+  const [mapLocked, setMapLocked] = useState(true);
 
   const animToken = useAnimationToken([
     datasetMode, group, colorMode, zoomCluster ?? "all",
@@ -978,51 +1197,160 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
     return demoModel ? scopeRows.filter((r) => r.model === demoModel) : scopeRows;
   }, [attLocked, rows, scopeRows, demoModel]);
 
-  /* LEFT chart data (Loyalty × WTP) */
-  const attitudesPoints = useMemo(() => {
+  /* ---- CHART A: points & domains from unified axes ---- */
+  const chartA_X = useMemo(() => ({ type: c1xType, key: c1xKey }), [c1xType, c1xKey]);
+  const chartA_Y = useMemo(() => ({ type: c1yType, key: c1yKey }), [c1yType, c1yKey]);
+
+  const pointsA = useMemo(() => {
     const groupBy = colorMode === "cluster" ? "cluster" : "model";
-    return buildAttitudesPointsOnePass(attBaseRows, groupBy, attXVar, attYVar, demoLookups, colorMode, modelColors, THEME.accent);
-  }, [attBaseRows, colorMode, attXVar, attYVar, demoLookups, modelColors, THEME.accent]);
+    return buildUnifiedPoints(attBaseRows, groupBy, chartA_X, chartA_Y, demoLookups, colorMode, modelColors, THEME.accent);
+  }, [attBaseRows, colorMode, chartA_X, chartA_Y, demoLookups, modelColors, THEME.accent]);
 
-  const leftXDomain = useMemo(
-    () => percentPaddedDomain(attitudesPoints.map(p => p.x)),
-    [attitudesPoints]
-  );
-  const leftYDomain = useMemo(
-    () => percentPaddedDomain(attitudesPoints.map(p => p.y)),
-    [attitudesPoints]
-  );
+  const axDomainA = useMemo(() => percentPaddedDomain(pointsA.map(p => p.x)), [pointsA]);
+  const ayDomainA = useMemo(() => percentPaddedDomain(pointsA.map(p => p.y)), [pointsA]);
+  const trendA    = useMemo(() => attTrendOn ? buildTrend(pointsA, axDomainA) : null, [attTrendOn, pointsA, axDomainA]);
+    /* ---- CHART B: points & domains from unified axes ---- */
+  const chartB_X = useMemo(() => ({ type: c2xType, key: c2xKey }), [c2xType, c2xKey]);
+  const chartB_Y = useMemo(() => ({ type: c2yType, key: c2yKey }), [c2yType, c2yKey]);
 
-
-  /* RIGHT chart data (PR_MOST × Imagery) */
-  const attitudesImageryPoints = useMemo(() => {
+  const pointsB = useMemo(() => {
     const groupBy = colorMode === "cluster" ? "cluster" : "model";
-    const byGroup = new Map();
+    return buildUnifiedPoints(attBaseRows, groupBy, chartB_X, chartB_Y, demoLookups, colorMode, modelColors, THEME.accent);
+  }, [attBaseRows, colorMode, chartB_X, chartB_Y, demoLookups, modelColors, THEME.accent]);
+
+  const axDomainB = useMemo(() => percentPaddedDomain(pointsB.map(p => p.x)), [pointsB]);
+  const ayDomainB = useMemo(() => percentPaddedDomain(pointsB.map(p => p.y)), [pointsB]);
+  const trendB    = useMemo(() => immTrendOn ? buildTrend(pointsB, axDomainB) : null, [immTrendOn, pointsB, axDomainB]);
+    const suggestBestCombos = useCallback(() => {
+    const groupBy = (colorMode === "cluster") ? "cluster" : "model";
+
+    // Group once so all pairs reuse the same buckets
+    const groups = new Map(); // gKey -> row[]
     for (const r of attBaseRows) {
-      const gk = groupBy === "cluster" ? r.cluster : String(r.model);
-      if (!byGroup.has(gk)) byGroup.set(gk, []);
-      byGroup.get(gk).push(r);
+      const gk = (groupBy === "cluster") ? r.cluster : String(r.model);
+      if (!groups.has(gk)) groups.set(gk, []);
+      groups.get(gk).push(r);
     }
-    const out = [];
-    for (const [gk, gr] of byGroup.entries()) {
-      const x = purchaseReasonPercent(gr, prMostLabel, demoLookups); // X = PR_MOST %
-      const y = imageryPercent(gr, imageryKey);                       // Y = Imagery %
-      if (x == null || y == null) continue;
-      const name = groupBy === "cluster" ? `C${gk}` : String(gk);
-      const col = colorMode === "cluster" ? clusterColor(Number(gk)) : (modelColors[String(gk)] || THEME.accent);
-      out.push({ key: gk, name, x, y, n: gr.length, color: col });
-    }
-    return out;
-  }, [attBaseRows, colorMode, prMostLabel, imageryKey, demoLookups, modelColors, THEME.accent]);
+    const groupKeys = Array.from(groups.keys());
 
-  const rightXDomain = useMemo(
-    () => percentPaddedDomain(attitudesImageryPoints.map(p => p.x)),
-    [attitudesImageryPoints]
-  );
-  const rightYDomain = useMemo(
-    () => percentPaddedDomain(attitudesImageryPoints.map(p => p.y)),
-    [attitudesImageryPoints]
-  );
+    // Axis families -> candidate keys
+    const typeToKeys = {
+      loyalty: Array.isArray(LOYALTY_VARS) ? LOYALTY_VARS : [],
+      wtp:     Array.isArray(WTP_VARS)     ? WTP_VARS     : [],
+      pr:      Array.isArray(prMostOptions)? prMostOptions: [],
+      img:     Array.isArray(IMAGERY_OPTIONS) ? IMAGERY_OPTIONS.map(o => o.key) : [],
+    };
+    const families = Object.keys(typeToKeys).filter(t => typeToKeys[t].length > 0);
+
+    // Cache percentages per (family,key,group)
+    const pctCache = new Map(); // `${type}|${key}|${gk}` -> number
+    const getPct = (type, key, gk) => {
+      const cacheKey = `${type}|${key}|${gk}`;
+      if (pctCache.has(cacheKey)) return pctCache.get(cacheKey);
+      const rows = groups.get(gk) || [];
+      let pct = NaN;
+
+      if (type === "loyalty" || type === "wtp") {
+        const varName = key;
+        const policy = agreePolicyFor(varName);
+        let agree = 0, denom = 0;
+        for (const row of rows) {
+          const lab = resolveMappedLabel(row, varName, demoLookups);
+          // include missing in denominator to match your other panels
+          denom += 1;
+          if (lab != null && String(lab).trim() !== "" && isTopNAgree(lab, policy)) agree += 1;
+        }
+        pct = denom ? (100 * agree) / denom : NaN;
+      } else if (type === "pr") {
+        let count = 0;
+        const denom = rows.length;
+        for (const row of rows) {
+          const lab = resolveMappedLabel(row, "PR_MOST", demoLookups);
+          if (lab != null && String(lab).trim() === String(key)) count += 1;
+        }
+        pct = denom ? (100 * count) / denom : NaN;
+      } else if (type === "img") {
+        let count = 0;
+        const denom = rows.length;
+        for (const row of rows) {
+          const v = row?.[key];
+          if (v === 1 || v === "1") count += 1;
+        }
+        pct = denom ? (100 * count) / denom : NaN;
+      }
+
+      pctCache.set(cacheKey, pct);
+      return pct;
+    };
+
+    // Build all cross-family pairs (no same-family), compute R² for each key pair
+    const candidates = [];
+    for (let i = 0; i < families.length; i++) {
+      for (let j = i + 1; j < families.length; j++) {
+        const tX = families[i];
+        const tY = families[j];
+        for (const kx of typeToKeys[tX]) {
+          for (const ky of typeToKeys[tY]) {
+            const pts = [];
+            for (const g of groupKeys) {
+              const x = getPct(tX, kx, g);
+              const y = getPct(tY, ky, g);
+              if (Number.isFinite(x) && Number.isFinite(y)) pts.push({ x, y });
+            }
+            if (pts.length >= 2) {
+              const reg = linearRegressionXY(pts);
+              if (reg && Number.isFinite(reg.r2)) {
+                candidates.push({ xType: tX, xKey: kx, yType: tY, yKey: ky, r2: reg.r2 });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Sort by R² desc
+    candidates.sort((a, b) => b.r2 - a.r2);
+
+    const best = candidates[0] || null;
+    const second = candidates.find(c =>
+      c && (
+        c.xType !== best?.xType || c.xKey !== best?.xKey ||
+        c.yType !== best?.yType || c.yKey !== best?.yKey
+      )
+    ) || null;
+
+    if (best) {
+      setC1xType(best.xType); setC1xKey(best.xKey);
+      setC1yType(best.yType); setC1yKey(best.yKey);
+      setAttTrendOn(true);
+      setBestLeftInfo(best);
+    } else {
+      setBestLeftInfo(null);
+    }
+
+    if (second) {
+      setC2xType(second.xType); setC2xKey(second.xKey);
+      setC2yType(second.yType); setC2yKey(second.yKey);
+      setImmTrendOn(true);
+      setBestRightInfo(second);
+    } else {
+      setBestRightInfo(null);
+    }
+  }, [
+    attBaseRows,
+    colorMode,
+    demoLookups,
+    LOYALTY_VARS,
+    WTP_VARS,
+    prMostOptions,
+    IMAGERY_OPTIONS,
+    setC1xType, setC1xKey, setC1yType, setC1yKey,
+    setC2xType, setC2xKey, setC2yType, setC2yKey,
+    setBestLeftInfo, setBestRightInfo,
+    setAttTrendOn, setImmTrendOn,
+  ]);
+
+
 
   /* ---- Clusters domains animation ---- */
   const targetX = useMemo(() => paddedDomain(plotFrame.map((r) => r.emb_x)), [plotFrame]);
@@ -1680,6 +2008,47 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
         </div>
       </div>
 
+      {/* ---- Best-combo helper bar (for both second-row charts) ---- */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, marginTop: 12 }}>
+        <button
+          onClick={suggestBestCombos}
+          title="Find x–y pairs with the highest R² for both charts and switch to them"
+          style={{
+            padding: "6px 10px",
+            borderRadius: 8,
+            border: `1px solid ${THEME.accent}`,
+            background: `rgba(${hexToRgbStr(THEME.accent)}, ${isDarkHex(THEME.panel) ? 0.22 : 0.14})`,
+            color: THEME.text,
+            cursor: "pointer",
+            fontWeight: 700,
+            fontSize: 12,
+          }}
+        >
+          Best x–y combos (R²)
+        </button>
+
+        {bestLeftInfo && (
+          <div style={{ fontSize: 12, color: THEME.muted }}>
+            Left&nbsp;{axisTypeLabel(bestLeftInfo.xType)}×{axisTypeLabel(bestLeftInfo.yType)}:&nbsp;
+            <b style={{ color: THEME.text }}>
+              {labelForOption(bestLeftInfo.xType, bestLeftInfo.xKey)} × {labelForOption(bestLeftInfo.yType, bestLeftInfo.yKey)}
+            </b>
+            &nbsp;• R²={bestLeftInfo.r2.toFixed(2)}
+          </div>
+        )}
+        {bestRightInfo && (
+          <div style={{ fontSize: 12, color: THEME.muted }}>
+            2nd&nbsp;{axisTypeLabel(bestRightInfo.xType)}×{axisTypeLabel(bestRightInfo.yType)}:&nbsp;
+            <b style={{ color: THEME.text }}>
+              {labelForOption(bestRightInfo.xType, bestRightInfo.xKey)} × {labelForOption(bestRightInfo.yType, bestRightInfo.yKey)}
+            </b>
+            &nbsp;• R²={bestRightInfo.r2.toFixed(2)}
+          </div>
+        )}
+
+      </div>
+
+      
       {/* ---- Middle row: Attitudes duplicated 50/50 ---- */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, alignItems: "stretch", gridAutoRows: "minmax(0, auto)" }}>
         {/* LEFT attitudes (Loyalty × WTP) */}
@@ -1700,6 +2069,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           >
             Details
           </button>
+          {/* Lock toggle — hidden but kept for future use
           <button
             onClick={() => setAttLocked((v) => !v)}
             title={attLocked ? "Unlock — follow filters" : "Lock — show full population"}
@@ -1711,15 +2081,58 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           >
             {attLocked ? <Lock size={16} strokeWidth={2} /> : <Unlock size={16} strokeWidth={2} />}
           </button>
+          */}
+          {/* Trendline toggle */}
+          <button
+            onClick={() => setAttTrendOn(v => !v)}
+            title={attTrendOn ? "Hide regression line" : "Show regression line"}
+            style={{
+              position: "absolute", top: 10, right: 12, zIndex: 2,
+              background: THEME.panel, color: THEME.text, border: `1px solid ${THEME.border}`,
+              borderRadius: 8, padding: 6, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "all 0.25s ease",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+              opacity: attTrendOn ? 1 : 0.8,
+            }}
+          >
+            <TrendingUp size={16} strokeWidth={2} />
+          </button>
 
-          <div style={{ width: "100%", display: "flex", justifyContent: "center", alignItems: "center", fontWeight: 700, fontSize: 22, marginTop: 8, marginBottom: 0, color: THEME.text }}>
-            Customer Loyalty & Willingness to Pay
+          <div style={{ width: "100%", display: "flex", justifyContent: "center", alignItems: "center", fontWeight: 700, fontSize: 22, marginTop: 8, marginBottom: 0, color: THEME.AGREE_TOP2text }}>
+            {axis(c1xType)} &nbsp;×&nbsp; {axis(c1yType)}
           </div>
 
+
           <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
-            <div style={{ position: "absolute", top: 0, left: "50%", width: "60%", transform: "translateX(-50%)", fontStyle: "italic", fontWeight: 600, color: THEME.muted, fontSize: 10, textAlign: "center" }}>
-              {varLabel(attXVar)} <span style={{ fontStyle: "normal", fontWeight: 400, margin: "0 6px" }}>×</span> {varLabel(attYVar)}
+            {/* top label (dynamic axis names) */}
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: "50%",
+                width: "70%",
+                transform: "translateX(-50%)",
+                fontStyle: "italic",
+                fontWeight: 600,
+                color: THEME.muted,
+                fontSize: 10,
+                textAlign: "center",
+              }}
+            >
+              {optionsForAxisType(c1xType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
+                .find(o => o.value === c1xKey)?.label || ""}
+              <span style={{ fontStyle: "normal", fontWeight: 400, margin: "0 6px" }}>×</span>
+              {optionsForAxisType(c1yType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
+                .find(o => o.value === c1yKey)?.label || ""}
             </div>
+            {attTrendOn && trendA && (
+              <div style={{ position: "absolute", top: 8, right: 30, fontSize: 12, fontWeight: 700, color: THEME.muted }}>
+                R²: <span style={{ color: THEME.text }}>{trendA.r2.toFixed(2)}</span>
+              </div>
+            )}
+
+
             <div style={{ position: "absolute", top: 25, right: 30, fontSize: 13, color: THEME.muted, textAlign: "right" }}>
               Sample size: <span style={{ fontWeight: 700, color: THEME.text }}>{attBaseRows.length.toLocaleString()}</span>
             </div>
@@ -1727,8 +2140,22 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart margin={{ top: 50, right: 20, bottom: 25, left: 5 }}>
                 <CartesianGrid stroke={THEME.border} strokeDasharray="4 6" />
-                <XAxis type="number" dataKey="x" name={varLabel(attXVar)} tickFormatter={(v) => `${v.toFixed(0)}%`} tick={{ fill: THEME.muted, fontSize: 12 }} stroke={THEME.border} domain={leftXDomain} />
-                <YAxis type="number" dataKey="y" name={varLabel(attYVar)} tickFormatter={(v) => `${v.toFixed(0)}%`} tick={{ fill: THEME.muted, fontSize: 12 }} stroke={THEME.border} domain={leftYDomain} />
+                <XAxis
+                  type="number"
+                  dataKey="x"
+                  tickFormatter={(v) => `${v.toFixed(0)}%`}
+                  tick={{ fill: THEME.muted, fontSize: 12 }}
+                  stroke={THEME.border}
+                  domain={axDomainA}
+                />
+                <YAxis
+                  type="number"
+                  dataKey="y"
+                  tickFormatter={(v) => `${v.toFixed(0)}%`}
+                  tick={{ fill: THEME.muted, fontSize: 12 }}
+                  stroke={THEME.border}
+                  domain={ayDomainA}
+                />
                 <Tooltip
                   isAnimationActive={false}
                   cursor={{ stroke: THEME.border }}
@@ -1754,46 +2181,93 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                     );
                   }}
                 />
-                <Scatter data={attitudesPoints} name="" shape={<BigDot />}>
-                  {attitudesPoints.map((pt, i) => (
+                <Scatter data={pointsA} name="" shape={<BigDot />}>
+                  {pointsA.map((pt, i) => (
                     <Cell key={`att-cell-${pt.key}-${i}`} fill={colorMode === "model" ? (modelColors[String(pt.key)] || THEME.accent) : clusterColor(Number(pt.key))} />
                   ))}
                 </Scatter>
+
+                {attTrendOn && trendA && (
+                  <>
+                    <Line
+                      name="Fit"
+                      type="linear"
+                      data={trendA.line}
+                      dataKey="y" 
+                      stroke={THEME.accent}
+                      strokeWidth={2}
+                      dot={false}
+                      isAnimationActive={false}
+                      strokeDasharray="6 4"
+                    />
+                  </>
+                )}
               </ScatterChart>
             </ResponsiveContainer>
 
-            {/* Y compact selector */}
-            <div style={{ position: "absolute", left: 0, top: "calc(50% - 50px)", zIndex: 2, pointerEvents: "auto" }}>
+            {/* Y-axis type (left, compact) */}
+            <div style={{ position: "absolute", left: 0, top: "calc(50% - 50px)", zIndex: 2 }}>
               <select
-                value={attYVar}
-                onChange={(e) => setAttYVar(e.target.value)}
-                style={{
-                  height: 24, width: 20, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`,
-                  background: THEME.panel, color: THEME.text, padding: "0 6px", outline: "none", cursor: "pointer",
+                value={c1yType}
+                onChange={(e) => {
+                  const t = e.target.value;
+                  setC1yType(t);
+                  const opts = optionsForAxisType(t, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel });
+                  setC1yKey((opts[0]?.value) || "");
                 }}
-                title="Select Y (WTP)"
+                style={{ height: 24, width: 22, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
+                title="Y axis: pick category"
               >
-                {WTP_VARS.map((v) => <option key={v} value={v}>{varLabel(v)}</option>)}
+                {AXIS_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
             </div>
-            <div style={{ position: "absolute", left: -5, top: "54%", transform: "translateY(-50%) rotate(-90deg)", transformOrigin: "left top", zIndex: 1, pointerEvents: "none" }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: THEME.text }}>WTP</span>
+            {/* Y-axis key (under label) */}
+            <div style={{ position: "absolute", left: 28, top: "calc(50% - 50px)", zIndex: 2 }}>
+              <select
+                value={c1yKey}
+                onChange={(e) => setC1yKey(e.target.value)}
+                style={{ height: 24, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
+                title="Y axis: pick variable"
+              >
+                {optionsForAxisType(c1yType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
+                  .map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div style={{ position: "absolute", left: -5, top: "54%", transform: "translateY(-50%) rotate(-90deg)", transformOrigin: "left top", pointerEvents: "none" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: THEME.text }}>
+                {AXIS_TYPES.find(t => t.id === c1yType)?.label}
+              </span>
             </div>
 
-            {/* X selector */}
-            <div style={{ position: "absolute", bottom: -1, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 6, pointerEvents: "auto" }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: THEME.text }}>Loyalty</span>
+            {/* X-axis (bottom center): type + key */}
+            <div style={{ position: "absolute", bottom: -1, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 6 }}>
               <select
-                value={attXVar}
-                onChange={(e) => setAttXVar(e.target.value)}
-                style={{
-                  height: 26, width: 400, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`,
-                  background: THEME.panel, color: THEME.text, padding: "0 6px", outline: "none", cursor: "pointer",
+                value={c1xType}
+                onChange={(e) => {
+                  const t = e.target.value;
+                  setC1xType(t);
+                  const opts = optionsForAxisType(t, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel });
+                  setC1xKey((opts[0]?.value) || "");
                 }}
+                style={{ height: 26, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
+                title="X axis: pick category"
               >
-                {LOYALTY_VARS.map((v) => <option key={v} value={v}>{varLabel(v)}</option>)}
+                {AXIS_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+
+              <select
+                value={c1xKey}
+                onChange={(e) => setC1xKey(e.target.value)}
+                style={{ height: 26, width: 380, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
+                title="X axis: pick variable"
+              >
+                {optionsForAxisType(c1xType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
+                  .map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
+
+
+
           </div>
         </div>
 
@@ -1816,7 +2290,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           >
             Details
           </button>
-
+          {/* Lock toggle — hidden but kept for future use
           <button
             onClick={() => setAttLocked((v) => !v)}
             title={attLocked ? "Unlock — follow filters" : "Lock — show full population"}
@@ -1828,10 +2302,29 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           >
             {attLocked ? <Lock size={16} strokeWidth={2} /> : <Unlock size={16} strokeWidth={2} />}
           </button>
+          */}
+
+          {/* Trendline toggle */}
+          <button
+            onClick={() => setImmTrendOn(v => !v)}
+            title={immTrendOn ? "Hide regression line" : "Show regression line"}
+            style={{
+              position: "absolute", top: 10, right: 12, zIndex: 2,
+              background: THEME.panel, color: THEME.text, border: `1px solid ${THEME.border}`,
+              borderRadius: 8, padding: 6, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "all 0.25s ease",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+              opacity: immTrendOn ? 1 : 0.8,
+            }}
+          >
+            <TrendingUp size={16} strokeWidth={2} />
+          </button>
 
           <div style={{ width: "100%", display: "flex", justifyContent: "center", alignItems: "center", fontWeight: 700, fontSize: 22, marginTop: 8, marginBottom: 0, color: THEME.text }}>
-            Most Important Purchase Reason & Imagery
+            {axis(c2xType)} &nbsp;×&nbsp; {axis(c2yType)}
           </div>
+
 
           {/* RIGHT chart body */}
           <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
@@ -1841,6 +2334,12 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
               <span style={{ fontStyle: "normal", fontWeight: 400, margin: "0 6px" }}>×</span>
               {IMAGERY_OPTIONS.find(o => o.key === imageryKey)?.label || "Imagery"}
             </div>
+            {immTrendOn && trendB && (
+              <div style={{ position: "absolute", top: 8, right: 30, fontSize: 12, fontWeight: 700, color: THEME.muted }}>
+                R²: <span style={{ color: THEME.text }}>{trendB.r2.toFixed(2)}</span>
+              </div>
+            )}
+
             <div style={{ position: "absolute", top: 25, right: 30, fontSize: 13, color: THEME.muted, textAlign: "right" }}>
               Sample size: <span style={{ fontWeight: 700, color: THEME.text }}>{attBaseRows.length.toLocaleString()}</span>
             </div>
@@ -1855,7 +2354,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                   tickFormatter={(v) => `${v.toFixed(0)}%`}
                   tick={{ fill: THEME.muted, fontSize: 12 }}
                   stroke={THEME.border}
-                  domain={rightXDomain}
+                  domain={axDomainB}
                   label={{ value: "Most Important Purchase Reason", position: "bottom", fill: THEME.text, fontSize: 12 }}
                 />
                 <YAxis
@@ -1865,7 +2364,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                   tickFormatter={(v) => `${v.toFixed(0)}%`}
                   tick={{ fill: THEME.muted, fontSize: 12 }}
                   stroke={THEME.border}
-                  domain={rightYDomain}
+                  domain={ayDomainB}
                 />
                 <Tooltip
                   isAnimationActive={false}
@@ -1890,50 +2389,92 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                     );
                   }}
                 />
-                <Scatter data={attitudesImageryPoints} name="" shape={<BigDot />}>
-                  {attitudesImageryPoints.map((pt, i) => (
+                <Scatter data={pointsB} name="" shape={<BigDot />}>
+                  {pointsB.map((pt, i) => (
                     <Cell key={`att-imm-cell-${pt.key}-${i}`} fill={pt.color} />
                   ))}
                 </Scatter>
+
+                {immTrendOn && trendB && (
+                  <>
+                    <Line
+                      name="Fit"
+                      type="linear"
+                      data={trendB.line}
+                      dataKey="y"
+                      stroke={THEME.accent}
+                      strokeWidth={2}
+                      dot={false}
+                      isAnimationActive={false}
+                      strokeDasharray="6 4"
+                    />
+                  </>
+                )}
               </ScatterChart>
             </ResponsiveContainer>
 
-            {/* Y selector (Imagery) */}
-            <div style={{ position: "absolute", left: 0, top: "calc(50% - 70px)", zIndex: 2, pointerEvents: "auto" }}>
+            {/* Y-axis (right chart) */}
+            <div style={{ position: "absolute", left: 0, top: "calc(50% - 70px)", zIndex: 2 }}>
               <select
-                value={imageryKey}
-                onChange={(e) => setImageryKey(e.target.value)}
-                style={{
-                  height: 28, width: 20, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`,
-                  background: THEME.panel, color: THEME.text, padding: "0 6px", outline: "none", cursor: "pointer",
+                value={c2yType}
+                onChange={(e) => {
+                  const t = e.target.value;
+                  setC2yType(t);
+                  const opts = optionsForAxisType(t, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel });
+                  setC2yKey((opts[0]?.value) || "");
                 }}
-                title="Select Imagery attribute (Y)"
+                style={{ height: 28, width: 22, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
+                title="Y axis: pick category"
               >
-                {IMAGERY_OPTIONS.map((opt) => (
-                  <option key={opt.key} value={opt.key}>{opt.label}</option>
-                ))}
+                {AXIS_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
             </div>
-            <div style={{ position: "absolute", left: -5, top: "56%", transform: "translateY(-50%) rotate(-90deg)", transformOrigin: "left top", zIndex: 1, pointerEvents: "none" }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: THEME.text }}>Imagery</span>
+            <div style={{ position: "absolute", left: 28, top: "calc(50% - 70px)", zIndex: 2 }}>
+              <select
+                value={c2yKey}
+                onChange={(e) => setC2yKey(e.target.value)}
+                style={{ height: 28, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
+                title="Y axis: pick variable"
+              >
+                {optionsForAxisType(c2yType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
+                  .map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div style={{ position: "absolute", left: -5, top: "56%", transform: "translateY(-50%) rotate(-90deg)", transformOrigin: "left top", pointerEvents: "none" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: THEME.text }}>
+                {AXIS_TYPES.find(t => t.id === c2yType)?.label}
+              </span>
             </div>
 
-            {/* X selector (Most Important Purchase Reason) */}
-            <div style={{ position: "absolute", bottom: -1, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 6, pointerEvents: "auto" }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: THEME.text }}>Purchase Reason</span>
+            {/* X-axis (bottom center) */}
+            <div style={{ position: "absolute", bottom: -1, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 6 }}>
               <select
-                value={prMostLabel}
-                onChange={(e) => setPrMostLabel(e.target.value)}
-                style={{
-                  height: 26, width: 300, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`,
-                  background: THEME.panel, color: THEME.text, padding: "0 6px", outline: "none", cursor: "pointer",
+                value={c2xType}
+                onChange={(e) => {
+                  const t = e.target.value;
+                  setC2xType(t);
+                  const opts = optionsForAxisType(t, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel });
+                  setC2xKey((opts[0]?.value) || "");
                 }}
+                style={{ height: 26, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
+                title="X axis: pick category"
               >
-                {prMostOptions.map((lab) => (
-                  <option key={lab} value={lab}>{lab}</option>
-                ))}
+                {AXIS_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+
+              <select
+                value={c2xKey}
+                onChange={(e) => setC2xKey(e.target.value)}
+                style={{ height: 26, width: 300, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
+                title="X axis: pick variable"
+              >
+                {optionsForAxisType(c2xType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
+                  .map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
+
+
+
           </div>
         </div>
       </div>
@@ -1958,6 +2499,8 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           >
             Details
           </button>
+
+          {/* Lock toggle — hidden but kept for future use
           <button
             onClick={() => setPriceLocked((v) => !v)}
             title={priceLocked ? "Unlock — follow filters" : "Lock — show full population"}
@@ -1968,6 +2511,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           >
             {priceLocked ? <Lock size={16} strokeWidth={2} /> : <Unlock size={16} strokeWidth={2} />}
           </button>
+          */}
 
           <div style={{ width: "100%", display: "flex", justifyContent: "center", alignItems: "center", fontWeight: 700, fontSize: 22, marginTop: 8, marginBottom: 0, color: THEME.text }}>
             Transaction Price
@@ -2087,7 +2631,8 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           >
             Details
           </button>
-
+          
+          {/* Lock toggle — hidden but kept for future use
           <button
             onClick={() => setMapLocked((v) => !v)}
             title={mapLocked ? "Unlock — map follows filters" : "Lock — map shows full population"}
@@ -2098,6 +2643,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           >
             {mapLocked ? <Lock size={16} strokeWidth={2} /> : <Unlock size={16} strokeWidth={2} />}
           </button>
+          */}
 
           {selectedStateName && (
             <button
@@ -2201,9 +2747,9 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 {detailsSource === "clusters"
                   ? "Clustering UMAP Scatter Plot"
                   : detailsSource === "attitudes"
-                  ? "Customer Loyalty & Willingness to Pay"
+                  ? `${axis(c1xType)} · ${axis(c1yType)}`
                   : detailsSource === "imagery"
-                  ? "Most Important Purchase Reason & Imagery"
+                  ? `${axis(c2xType)} · ${axis(c2yType)}`
                   : detailsSource === "price"
                   ? "Transaction Price Distribution"
                   : detailsSource === "map"
