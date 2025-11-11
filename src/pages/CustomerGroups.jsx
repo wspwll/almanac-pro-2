@@ -20,6 +20,10 @@ import suvPoints from "./data/suv_points.json";
 import puPoints from "./data/pu_points.json";
 import midSuvPoints from "./data/mid_suv_points.json";
 import largePuPoints from "./data/large_pu_points.json";
+import coreSuvStateVolumes from "./data/core_suv_state_volumes.json";
+import corePuStateVolumes from "./data/core_pu_state_volumes.json";
+import segmentSuvStateVolumes from "./data/segment_suv_state_volumes.json";
+import segmentPuStateVolumes from "./data/segment_pu_state_volumes.json";
 import demosMapping from "./data/demos-mapping.json";
 import codeToTextMapRaw from "./data/code-to-text-map.json";
 import { ComposableMap, Geographies, Geography } from "react-simple-maps";
@@ -1384,7 +1388,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
   const mapBaseRows = useMemo(() => (demoModel ? demoBaseRows.filter((r) => r.model === demoModel) : demoBaseRows), [demoBaseRows, demoModel]);
   const mapSourceRows = useMemo(() => (mapLocked ? rows : mapBaseRows), [mapLocked, rows, mapBaseRows]);
 
-  const stateAgg = useMemo(() => {
+  const stateAggRespondents = useMemo(() => {
     const counts = new Map(); let total = 0;
     for (const r of mapSourceRows) {
       const name = getRowStateNameCached(r);
@@ -1402,6 +1406,65 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
     }
     return { counts, pcts, total, maxPct };
   }, [mapSourceRows, getRowStateNameCached]);
+
+  // ---- State map: VOLUME mode for Core Set (SUV & Pickup) using *_state_volumes.json ----
+  
+  const stateAggVolume = useMemo(() => {
+    // Apply volume-based map shading for Core and Segments datasets
+    let volRows = null;
+    if (datasetMode === "CORE") {
+      volRows =
+        group === "SUV" ? coreSuvStateVolumes :
+        group === "Pickup" ? corePuStateVolumes :
+        null;
+    } else if (datasetMode === "SEGMENTS") {
+      volRows =
+        group === "MidSUV" ? segmentSuvStateVolumes :
+        group === "LargePickup" ? segmentPuStateVolumes :
+        null;
+    } else {
+      volRows = null;
+    }
+
+    if (!Array.isArray(volRows)) return null;
+// limit to selected models (fallback to allModels if none actively selected)
+    const activeModels = (selectedModels && selectedModels.length)
+      ? new Set(selectedModels.map(String))
+      : new Set(allModels.map(String));
+
+    const counts = new Map(); // key: state uppercase full name -> total volume
+    let total = 0;
+
+    for (const row of volRows) {
+      const m = String(row?.model ?? "");
+      if (!activeModels.has(m)) continue;
+      const stateKey = String(row?.state ?? "").toUpperCase();
+      if (!stateKey) continue;
+      const vol = Number(row?.volume ?? 0) || 0;
+      if (!vol) continue;
+      counts.set(stateKey, (counts.get(stateKey) || 0) + vol);
+      total += vol;
+    }
+
+    // Build percent-of-total for shading, plus track the max PCT to scale
+    const pcts = new Map();
+    let maxPct = 0;
+    if (total > 0) {
+      for (const [name, c] of counts.entries()) {
+        const pct = (c / total) * 100;
+        pcts.set(name, pct);
+        if (pct > maxPct) maxPct = pct;
+      }
+    }
+
+    return { counts, pcts, total, maxPct, isVolume: true };
+  }, [datasetMode, group, selectedModels, allModels, coreSuvStateVolumes, corePuStateVolumes, segmentSuvStateVolumes, segmentPuStateVolumes]);
+
+
+  // Final stateAgg to drive the map (volume for Core SUV, otherwise respondents-based)
+  const stateAgg = stateAggVolume ?? stateAggRespondents;
+
+
 
   const [hoverState, setHoverState] = useState(null);
 
@@ -2626,19 +2689,6 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           </button>
           */}
 
-          {selectedStateName && (
-            <button
-              onClick={() => setSelectedStateName(null)}
-              style={{
-                position: "absolute", top: 10, right: 46, background: THEME.panel, color: THEME.text,
-                border: `1px solid ${THEME.border}`, borderRadius: 8, padding: "4px 8px", fontSize: 12, cursor: "pointer",
-              }}
-              title="Clear state filter"
-            >
-              Clear
-            </button>
-          )}
-
           <div style={{ width: "100%", display: "flex", justifyContent: "center", alignItems: "center", fontWeight: 700, fontSize: 22, marginTop: 8, marginBottom: 0, color: THEME.text }}>
             State of Residence
           </div>
@@ -2649,7 +2699,8 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 {({ geographies }) =>
                   geographies.map((geo) => {
                     const name = geo.properties.name;
-                    const pct = stateAgg.pcts.get(name) || 0;
+                    const key = stateAgg?.isVolume ? String(name).toUpperCase() : name;
+                    const pct = stateAgg.pcts.get(key) || 0;
                     const t = stateAgg.maxPct > 0 ? Math.min(1, pct / stateAgg.maxPct) : 0;
 
                     const isSelected = selectedStateName === name;
@@ -2662,12 +2713,11 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                       <Geography
                         key={geo.rsmKey}
                         geography={geo}
-                        onClick={() => setSelectedStateName(name)}
-                        onMouseEnter={() => setHoverState({ name, pct, count: stateAgg.counts.get(name) || 0 })}
+                        onMouseEnter={() => setHoverState({ name, pct, count: stateAgg.counts.get(stateAgg?.isVolume ? String(name).toUpperCase() : name) || 0 })}
                         onMouseLeave={() => setHoverState(null)}
                         style={{
-                          default: { fill, stroke, strokeWidth, outline: "none", cursor: "pointer" },
-                          hover: { fill: blendHex(fill, "#ffffff", 0.15), stroke, strokeWidth: Math.max(1, strokeWidth), outline: "none", cursor: "pointer" },
+                          default: { fill, stroke, strokeWidth, outline: "none", cursor: "default" },
+                          hover: { fill: blendHex(fill, "#ffffff", 0.15), stroke, strokeWidth: Math.max(1, strokeWidth), outline: "none", cursor: "default" },
                           pressed: { fill, stroke, strokeWidth: Math.max(1, strokeWidth), outline: "none" },
                         }}
                       />
@@ -2683,12 +2733,12 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
               {hoverState ? (
                 <>
                   {hoverState.name}: <span style={{ fontWeight: 700 }}>{hoverState.pct.toFixed(1)}%</span>
-                  {stateAgg.counts.get(hoverState.name) || 0 ? ` (${(stateAgg.counts.get(hoverState.name) || 0).toLocaleString()})` : ""}
+                  {(stateAgg.counts.get(stateAgg?.isVolume ? String(hoverState.name).toUpperCase() : hoverState.name) || 0) ? ` (${(stateAgg.counts.get(stateAgg?.isVolume ? String(hoverState.name).toUpperCase() : hoverState.name) || 0).toLocaleString()})` : ""}
                 </>
               ) : selectedStateName ? (
                 `Filtering Demographics to ${selectedStateName} • ${scopeRows.length.toLocaleString()} records`
               ) : stateAgg.total > 0 ? (
-                <>Sample size: <span style={{ fontWeight: 700 }}>{stateAgg.total.toLocaleString()}</span></>
+                <>{stateAgg?.isVolume ? 'Total volume' : 'Sample size'}: <span style={{ fontWeight: 700 }}>{stateAgg.total.toLocaleString()}</span></>
               ) : (
                 "No state data in current scope"
               )}
