@@ -61,6 +61,15 @@ const FIXED_CLUSTER_COLORS = {
 const clusterColor = (k) =>
   FIXED_CLUSTER_COLORS[k] ??
   SERIES_COLORS[(Number(k) - 1 + SERIES_COLORS.length) % SERIES_COLORS.length];
+/* ---------- Display names for clusters (UI only) ---------- */
+const CLUSTER_DISPLAY_NAMES = {
+  1: "Comfort Keepers",
+  2: "Savvy Thrill Seekers",
+  3: "EV-Tech Enthusiasts",
+  4: "Everyday Pathfinders",
+};
+const clusterDisplayName = (id) => CLUSTER_DISPLAY_NAMES[id] || `C${id}`;
+
 
 const US_TOPO = "https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json";
 
@@ -163,11 +172,11 @@ const CentroidDot = React.memo(function CentroidDot({
       <text y={-16} textAnchor="middle" fontSize={16} fontWeight={800}
             stroke={THEME.bg} strokeWidth={3} paintOrder="stroke fill"
             style={{ pointerEvents: "none" }}>
-        {`C${payload.cluster}`}
+        {clusterDisplayName(payload.cluster)}
       </text>
       <text y={-16} textAnchor="middle" fontSize={16} fontWeight={800}
             fill={THEME.text} style={{ pointerEvents: "none" }}>
-        {`C${payload.cluster}`}
+        {clusterDisplayName(payload.cluster)}
       </text>
     </g>
   );
@@ -1839,7 +1848,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 <button
                   key={`cluster-${k}`}
                   onClick={() => setZoomCluster(k)}
-                  title={`Zoom to C${k}`}
+                  title={`Zoom to ${clusterDisplayName(k)}`}
                   style={{
                     background: color,
                     color: "#ffffff",
@@ -1854,9 +1863,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                     transition: "opacity 0.2s ease, filter 0.2s ease",
                     whiteSpace: "nowrap",
                   }}
-                >
-                  {`C${k}`}
-                </button>
+                >{clusterDisplayName(k)}</button>
               );
             })}
           </div>
@@ -1935,7 +1942,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                   return (
                     <Scatter
                       key={String(k)}
-                      name={colorMode === "cluster" ? `C${k}` : String(k)}
+                      name={colorMode === "cluster" ? clusterDisplayName(k) : String(k)}
                       data={data}
                       fill={fillColor}
                       isAnimationActive={false}
