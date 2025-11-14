@@ -26,6 +26,7 @@ import segmentSuvStateVolumes from "./data/segment_suv_state_volumes.json";
 import segmentPuStateVolumes from "./data/segment_pu_state_volumes.json";
 import demosMapping from "./data/demos-mapping.json";
 import codeToTextMapRaw from "./data/code-to-text-map.json";
+import modelDisplayEntries from "./data/models.json";
 import { ComposableMap, Geographies, Geography } from "react-simple-maps";
 import { ChevronDown, ChevronUp, TrendingUp } from "lucide-react";
 
@@ -70,6 +71,30 @@ const CLUSTER_DISPLAY_NAMES = {
 };
 const clusterDisplayName = (id) => CLUSTER_DISPLAY_NAMES[id] || `C${id}`;
 
+
+const MODEL_DISPLAY_MAP = new Map(
+  (modelDisplayEntries || []).map((entry) => [
+    String(entry?.raw ?? ""),
+    {
+      brand: String(entry?.brand ?? "").trim(),
+      model: String(entry?.model ?? "").trim(),
+    },
+  ])
+);
+
+function getModelDisplayParts(raw) {
+  const key = String(raw ?? "");
+  const entry = MODEL_DISPLAY_MAP.get(key);
+  if (entry && (entry.brand || entry.model)) {
+    return entry;
+  }
+  return { brand: "", model: key };
+}
+
+function getModelDisplayName(raw) {
+  const { brand, model } = getModelDisplayParts(raw);
+  return brand ? `${brand} ${model}` : model;
+}
 
 const US_TOPO = "https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json";
 
@@ -128,6 +153,38 @@ const isDarkHex = (hex) => {
   const brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
   return brightness < 0.5;
 };
+function hslToRgbStr(hsl) {
+  const match = /hsl\(\s*([\d.]+),\s*([\d.]+)%?,\s*([\d.]+)%?\s*\)/i.exec(hsl || "");
+  if (!match) return "0, 0, 0";
+  let h = (parseFloat(match[1]) % 360) / 360;
+  let s = parseFloat(match[2]) / 100;
+  let l = parseFloat(match[3]) / 100;
+  let r, g, b;
+  if (s === 0) {
+    r = g = b = l;
+  } else {
+    const hue2rgb = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1 / 3);
+  }
+  return `${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}`;
+}
+function colorToRgbStr(color) {
+  if (!color) return "0, 0, 0";
+  const c = String(color).trim();
+  if (c.toLowerCase().startsWith("hsl")) return hslToRgbStr(c);
+  return hexToRgbStr(c);
+}
 function rgbToHex({ r, g, b }) {
   const to = (x) =>
     Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, "0");
@@ -291,7 +348,7 @@ const FIELD_GROUPS = {
     "FIN_PRICE_UNEDITED", "BLD_FIN_TOTAL_MONPAY", "FIN_PU_DOWN_PAY", "FIN_PU_TRADE_IN",
     "FIN_LE_LENGTH", "FIN_PU_LENGTH", "C1_PL", "FIN_CREDIT",
   ],
-  "Buying Behavior": ["PR_MOST", "C2S_MODEL_RESPONSE", "SRC_TOP1"],
+  "Buying Behavior": ["PR_MOST", "C1S_MODEL_RESPONSE", "SRC_TOP1"],
   Loyalty: [
     "OL_MODEL_GRP", "STATE_BUY_BEST", "STATE_CONTINUE", "STATE_FEEL_GOOD", "STATE_REFER",
     "STATE_PRESTIGE", "STATE_EURO", "STATE_AMER", "STATE_ASIAN", "STATE_SWITCH_FEAT", "STATE_VALUES",
@@ -347,6 +404,7 @@ const VALUE_ORDER = {
     "Gen Z (>1994)","Millennials (1979-1994)","Gen X (1965-1978)",
     "Trailing-Edge Boomers (1960-1964)","Leading-Edge Boomers (1946-1959)","Matures (< 1946)","Unknown",
   ],
+  OL_MODEL_GRP: ["Loyal", "Not Loyal", "Unknown"],
   DEMO_MARITAL: ["Married","Divorced, widowed, separated","Single, never married","Cohabitating","Unknown"],
   BLD_CHILDREN: ["None","One","Two","Three","Four","Five","Unknown"],
   DEMO_LOCATION: ["Metropolitan city","Suburban community of a larger city","Small town or rural city","Farming area","Unknown"],
@@ -694,7 +752,7 @@ const AXIS_TYPES = [
 const axisTypeLabel = (id) => AXIS_TYPES.find(t => t.id === id)?.label || id;
 
 function optionsForAxisType(type, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel }) {
-  if (type === "loyalty") return LOYALTY_VARS.map(v => ({ value: v, label: varLabel(v) }));
+  if (type === "loyalty") return LOYALTY_VARS.map(v => ({ value: v, label: varLabel(v), _order: LOYALTY_VARS.indexOf(v) }));
   if (type === "wtp")     return WTP_VARS.map(v => ({ value: v, label: varLabel(v) }));
   if (type === "pr")      return prMostOptions.map(lab => ({ value: lab, label: lab }));
   if (type === "img")     return IMAGERY_OPTIONS.map(o => ({ value: o.key, label: o.label }));
@@ -767,7 +825,7 @@ const chipFixedCG = (active, baseColor, panelColor, borderColor, textColor) => {
     padding: "6px 10px",
     borderRadius: 10,
     border: `1px solid ${active ? baseColor : borderColor}`,
-    background: active ? `rgba(${hexToRgbStr(baseColor)}, ${alpha})` : "transparent",
+    background: active ? `rgba(${colorToRgbStr(baseColor)}, ${alpha})` : "transparent",
     color: textColor,
     cursor: "pointer",
     fontSize: 14,
@@ -778,6 +836,11 @@ const chipFixedCG = (active, baseColor, panelColor, borderColor, textColor) => {
 };
 
 export default function CustomerGroups({ COLORS: THEME, useStyles }) {
+  // Pick signature by theme (based on panel brightness)
+  const sigSrc = isDarkHex(THEME.panel)
+    ? "/signature-fog.png"
+    : "/signature-moonstone.png";
+
   const [datasetMode, setDatasetMode] = useState("CORE");
   const [guideOpen, setGuideOpen] = useState(false);
   const [group, setGroup] = useState("SUV");
@@ -795,6 +858,9 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
   const [immTrendOn, setImmTrendOn] = useState(false);  // Right scatter (PR_MOST × Imagery)
   const [bestLeftInfo, setBestLeftInfo] = useState(null);   // { xVar, yVar, r2 }
   const [bestRightInfo, setBestRightInfo] = useState(null); // { prLabel, imgKey, r2 }
+  const [topPairs, setTopPairs] = useState([]);
+  const [pairsOpen, setPairsOpen] = useState(false);
+
 
   useEffect(() => {
     setZoomCluster(null);
@@ -845,10 +911,13 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
 
   const modelColors = useMemo(() => {
     const map = {};
-    for (const m of allModels) {
-      const idx = hashStr(m) % SERIES_COLORS.length;
-      map[m] = SERIES_COLORS[idx];
-    }
+    const total = allModels.length || 1;
+    allModels.forEach((m, i) => {
+      const hue = Math.round((360 / total) * i);
+      const saturation = 65;
+      const lightness = 55;
+      map[m] = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+    });
     return map;
   }, [allModels]);
 
@@ -1324,6 +1393,9 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
     // Sort by R² desc
     candidates.sort((a, b) => b.r2 - a.r2);
 
+    // keep full ranking for Top 20 modal
+    setTopPairs(candidates);
+
     const best = candidates[0] || null;
     const second = candidates.find(c =>
       c && (
@@ -1360,6 +1432,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
     setC1xType, setC1xKey, setC1yType, setC1yKey,
     setC2xType, setC2xKey, setC2yType, setC2yKey,
     setBestLeftInfo, setBestRightInfo,
+    setTopPairs,
     setAttTrendOn, setImmTrendOn,
   ]);
 
@@ -1541,10 +1614,90 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
         continue;
       }
 
+      // Top 20: "Most important purchase reason"
+      if (field === "PR_MOST") {
+        const unknown = items.find((d) => d.label === "Unknown");
+        const top20 = items
+          .filter((d) => d.label !== "Unknown")
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 20);
+
+        const finalItems = unknown ? [...top20, unknown] : top20;
+        sections.push({ field, mode: "categorical", items: finalItems, total: fieldTotal });
+        continue;
+      }
+
+      // Top 20: "Most Influential Source of Information"
+      if (field === "SRC_TOP1") {
+        const unknown = items.find((d) => d.label === "Unknown");
+        const top20 = items
+          .filter((d) => d.label !== "Unknown")
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 20);
+
+        const finalItems = unknown ? [...top20, unknown] : top20;
+        sections.push({ field, mode: "categorical", items: finalItems, total: fieldTotal });
+        continue;
+      }
+
       const order = VALUE_ORDER[field];
       if (order) {
-        const idx = (label) => { const i = order.indexOf(label); return i === -1 ? Number.MAX_SAFE_INTEGER : i; };
-        items.sort((a, b) => { const ai = idx(a.label), bi = idx(b.label); if (ai !== bi) return ai - bi; return b.pct - a.pct; });
+        const idx = (label) => {
+          const i = order.indexOf(label);
+          return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+        };
+        items.sort((a, b) => {
+          const ai = idx(a.label);
+          const bi = idx(b.label);
+          if (ai !== bi) return ai - bi;
+          return b.pct - a.pct;
+        });
+      }
+
+      // Standardize Likert ordering for Loyalty & Willingness to Pay panels
+      if (!order && (selectedFieldGroup === "Loyalty" || selectedFieldGroup === "Willingness to Pay")) {
+        const labelsNorm = new Set(items.map((it) => normalizeLabel(it.label)));
+        const hasBareAgree = labelsNorm.has("agree");
+        const hasBareDisagree = labelsNorm.has("disagree");
+
+        const baseOrder = (hasBareAgree || hasBareDisagree)
+          ? [
+              "strongly agree",
+              "agree",
+              "somewhat agree",
+              "somewhat disagree",
+              "disagree",
+              "strongly disagree",
+              "unknown",
+            ]
+          : [
+              "strongly agree",
+              "somewhat agree",
+              "somewhat disagree",
+              "strongly disagree",
+              "unknown",
+            ];
+
+        const rankMap = new Map(baseOrder.map((lab, idx) => [lab, idx]));
+
+        const likertIdx = (label) => {
+          const key = normalizeLabel(label);
+          if (rankMap.has(key)) return rankMap.get(key);
+
+          // Handle neutral responses such as "Neither agree nor disagree"
+          if (key.includes("neither") && key.includes("agree") && key.includes("disagree")) {
+            return baseOrder.length / 2;
+          }
+
+          return Number.MAX_SAFE_INTEGER;
+        };
+
+        items.sort((a, b) => {
+          const ai = likertIdx(a.label);
+          const bi = likertIdx(b.label);
+          if (ai !== bi) return ai - bi;
+          return b.pct - a.pct;
+        });
       }
 
       sections.push({ field, mode: "categorical", items, total: fieldTotal });
@@ -1554,11 +1707,27 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
       const order = FIELD_GROUPS.Demographics;
       const idx = (f) => { const i = order.indexOf(f); return i === -1 ? Number.MAX_SAFE_INTEGER : i; };
       sections.sort((a, b) => idx(a.field) - idx(b.field));
+    } else if (selectedFieldGroup === "Buying Behavior") {
+      const priority = ["PR_MOST", "SRC_TOP1", "C1S_MODEL_RESPONSE"];
+      const idxField = (f) => {
+        const i = priority.indexOf(f);
+        return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+      };
+      sections.sort((a, b) => idxField(a.field) - idxField(b.field));
     } else {
       sections.sort((a, b) => {
         if (a.mode !== b.mode) return a.mode === "numeric" ? -1 : 1;
         return (b.items?.[0]?.pct || 0) - (a.items?.[0]?.pct || 0);
       });
+    }
+
+    // Ensure "Loyalty to model" (OL_MODEL_GRP) card is first in the Loyalty group
+    if (selectedFieldGroup === "Loyalty") {
+      const idx = sections.findIndex((s) => s.field === "OL_MODEL_GRP");
+      if (idx > 0) {
+        const [loyalSection] = sections.splice(idx, 1);
+        sections.unshift(loyalSection);
+      }
     }
 
     return sections;
@@ -1718,56 +1887,140 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
         {/* Models */}
         <div>
           <div style={{ color: THEME.muted, marginTop: 10, marginBottom: 12 }}>Choose models</div>
+
           {datasetMode === "SEGMENTS" && group === "MidSUV" ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(10, minmax(0, 1fr))", gap: 8, alignItems: "stretch", marginBottom: 10 }}>
+            /* ---------- MidSUV GRID BUTTONS ---------- */
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(10, minmax(0, 1fr))",
+                gap: 8,
+                alignItems: "stretch",
+                marginBottom: 10,
+              }}
+            >
               {allModels.map((m) => {
                 const active = selectedModels.includes(m);
                 const baseColor = modelColors[m] || THEME.accent;
+
                 return (
                   <button
                     key={m}
                     onClick={() => toggleModel(m)}
-                    title={m}
+                    title={getModelDisplayName(m)}
                     style={{
                       width: "100%",
-                      textAlign: "center",
-                      background: active ? `rgba(${hexToRgbStr(baseColor)}, ${isDarkHex(THEME.panel) ? 0.22 : 0.14})` : "transparent",
+                      background: active
+                        ? `rgba(${colorToRgbStr(baseColor)}, ${
+                            isDarkHex(THEME.panel) ? 0.22 : 0.14
+                          })`
+                        : "transparent",
                       color: THEME.text,
                       border: `1px solid ${active ? baseColor : THEME.border}`,
                       borderRadius: 8,
                       padding: "6px 10px",
                       cursor: "pointer",
                       fontSize: 13,
-                      transition: "border-color 120ms ease, background-color 120ms ease, color 120ms ease",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
+                      transition:
+                        "border-color 120ms ease, background-color 120ms ease, color 120ms ease",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      lineHeight: 1.1,
                     }}
                   >
-                    {m}
+                    {(() => {
+                      const { brand, model } = getModelDisplayParts(m);
+                      return (
+                        <div style={{ fontSize: 10, lineHeight: 1.1, textAlign: "center" }}>
+                          <span style={{ display: "block" }}>{brand}</span>
+                          <span style={{ display: "block", fontWeight: 700, fontSize: 12 }}>{model}</span>
+                        </div>
+                      );
+                    })()}
                   </button>
                 );
               })}
             </div>
           ) : (
-            <div style={{ display: "flex", flexWrap: "nowrap", gap: 8, overflowX: "auto", whiteSpace: "nowrap", paddingBottom: 10 }}>
+            /* ---------- HORIZONTAL SCROLLER BUTTONS ---------- */
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "nowrap",
+                gap: 8,
+                overflowX: "auto",
+                paddingBottom: 10,
+              }}
+            >
               {allModels.map((m) => {
                 const active = selectedModels.includes(m);
                 const baseColor = modelColors[m] || THEME.accent;
+
                 return (
-                  <button key={m} onClick={() => toggleModel(m)} style={chipFixedCG(active, baseColor, THEME.panel, THEME.border, THEME.text)} title={m}>
-                    {m}
+                  <button
+                    key={m}
+                    onClick={() => toggleModel(m)}
+                    title={getModelDisplayName(m)}
+                    style={{
+                      ...chipFixedCG(active, baseColor, THEME.panel, THEME.border, THEME.text),
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      lineHeight: 1.1,
+                      whiteSpace: "normal",
+                    }}
+                  >
+                    {(() => {
+                      const { brand, model } = getModelDisplayParts(m);
+                      return (
+                        <div style={{ fontSize: 10, lineHeight: 1.1, textAlign: "center" }}>
+                          <span style={{ display: "block" }}>{brand}</span>
+                          <span style={{ display: "block", fontWeight: 700, fontSize: 12 }}>{model}</span>
+                        </div>
+                      );
+                    })()}
                   </button>
                 );
               })}
             </div>
           )}
 
-          <div style={{ marginTop: 8, marginBottom: 20, display: "flex", gap: 8 }}>
-            <button onClick={selectAll} style={{ background: THEME.panel, color: THEME.text, border: `1px solid ${THEME.border}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}>
+          <div
+            style={{
+              marginTop: 8,
+              marginBottom: 20,
+              display: "flex",
+              gap: 8,
+            }}
+          >
+            <button
+              onClick={selectAll}
+              style={{
+                background: THEME.panel,
+                color: THEME.text,
+                border: `1px solid ${THEME.border}`,
+                borderRadius: 8,
+                padding: "6px 10px",
+                cursor: "pointer",
+              }}
+            >
               Select all
             </button>
-            <button onClick={clearAll} style={{ background: THEME.panel, color: THEME.text, border: `1px solid ${THEME.border}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}>
+
+            <button
+              onClick={clearAll}
+              style={{
+                background: THEME.panel,
+                color: THEME.text,
+                border: `1px solid ${THEME.border}`,
+                borderRadius: 8,
+                padding: "6px 10px",
+                cursor: "pointer",
+              }}
+            >
               Clear
             </button>
           </div>
@@ -1984,7 +2237,15 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
             borderRadius: 12, padding: 12, color: THEME.text, display: "flex", flexDirection: "column", boxSizing: "border-box",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                columnGap: 8,
+                alignItems: "center",
+                marginBottom: 8,
+              }}
+            >
             <select
               value={selectedFieldGroup}
               onChange={(e) => setSelectedFieldGroup(e.target.value)}
@@ -1999,38 +2260,32 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
               ))}
 
             </select>
-          </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-            <button
-              onClick={() => setDemoModel(null)}
-              style={{
-                background: demoModel == null ? THEME.accent : THEME.panel,
-                color: demoModel == null ? THEME.onAccent : THEME.muted,
-                border: `1px solid ${demoModel == null ? THEME.accent : THEME.border}`,
-                borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 12,
+            {/* Model selector */}
+            <select
+              value={demoModel ?? ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                setDemoModel(val === "" ? null : val);
               }}
+              style={{
+                background: THEME.panel,
+                color: THEME.text,
+                border: `1px solid ${THEME.border}`,
+                padding: "6px 10px",
+                borderRadius: 8,
+                fontSize: 12,
+                width: 165,
+              }}
+              title="Filter demographics by model"
             >
-              All
-            </button>
-            {modelsInScope.map((m) => {
-              const active = demoModel === m;
-              return (
-                <button
-                  key={`demoModel-${m}`}
-                  onClick={() => setDemoModel(m)}
-                  style={{
-                    background: active ? THEME.accent : THEME.panel,
-                    color: active ? THEME.onAccent : THEME.muted,
-                    border: `1px solid ${active ? THEME.accent : THEME.border}`,
-                    borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 12,
-                  }}
-                  title={m}
-                >
-                  {m}
-                </button>
-              );
-            })}
+              <option value="">All models</option>
+              {modelsInScope.map((m) => (
+                <option key={m} value={m}>
+                  {getModelDisplayName(m)}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div style={{ overflowY: "auto", paddingRight: 4, gap: 12, display: "flex", flexDirection: "column" }}>
@@ -2080,6 +2335,24 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
 
       {/* ---- Best-combo helper bar (for both second-row charts) ---- */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, marginTop: 12 }}>
+        {topPairs && topPairs.length > 0 && (
+          <button
+            onClick={() => setPairsOpen(true)}
+            title="View the strongest variable pairs by R²"
+            style={{
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: `1px solid ${THEME.border}`,
+              background: THEME.panel,
+              color: THEME.text,
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: 12,
+            }}
+          >
+            Show Top 20 Pairs
+          </button>
+        )}
         <button
           onClick={suggestBestCombos}
           title="Find x–y pairs with the highest R² for both charts and switch to them"
@@ -2170,10 +2443,10 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 textAlign: "center",
               }}
             >
-              {optionsForAxisType(c1xType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
+              {optionsForAxisType(c1xType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel }).sort((a,b)=>(a._order??0)-(b._order??0))
                 .find(o => o.value === c1xKey)?.label || ""}
               <span style={{ fontStyle: "normal", fontWeight: 400, margin: "0 6px" }}>×</span>
-              {optionsForAxisType(c1yType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
+              {optionsForAxisType(c1yType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel }).sort((a,b)=>(a._order??0)-(b._order??0))
                 .find(o => o.value === c1yKey)?.label || ""}
             </div>
             {attTrendOn && trendA && (
@@ -2279,7 +2552,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 style={{ height: 28, width: 22, ontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
                 title="Y axis: pick variable"
               >
-                {optionsForAxisType(c1yType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
+                {optionsForAxisType(c1yType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel }).sort((a,b)=>(a._order??0)-(b._order??0))
                   .map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
@@ -2311,7 +2584,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 style={{ height: 26, width: 380, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
                 title="X axis: pick variable"
               >
-                {optionsForAxisType(c1xType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
+                {optionsForAxisType(c1xType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel }).sort((a,b)=>(a._order??0)-(b._order??0))
                   .map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
@@ -2487,7 +2760,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 style={{ height: 28, width: 22, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
                 title="Y axis: pick variable"
               >
-                {optionsForAxisType(c2yType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
+                {optionsForAxisType(c2yType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel }).sort((a,b)=>(a._order??0)-(b._order??0))
                   .map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
@@ -2519,7 +2792,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 style={{ height: 26, width: 300, fontSize: 12, borderRadius: 6, border: `1px solid ${THEME.border}`, background: THEME.panel, color: THEME.text }}
                 title="X axis: pick variable"
               >
-                {optionsForAxisType(c2xType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel })
+                {optionsForAxisType(c2xType, { LOYALTY_VARS, WTP_VARS, prMostOptions, IMAGERY_OPTIONS, varLabel }).sort((a,b)=>(a._order??0)-(b._order??0))
                   .map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
@@ -2906,6 +3179,156 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
         </div>
       )}
 
+
+      {/* ---- Top 20 Pairs dialog ---- */}
+      {pairsOpen && topPairs && topPairs.length > 0 && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setPairsOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(820px, 96vw)",
+              maxHeight: "84vh",
+              overflowY: "auto",
+              background: THEME.bg,
+              border: `1px solid ${THEME.border}`,
+              borderRadius: 12,
+              boxShadow: "0 12px 28px rgba(0,0,0,0.35)",
+              color: THEME.text,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "14px 16px",
+                borderBottom: `1px solid ${THEME.border}`,
+                position: "sticky",
+                top: 0,
+                background: THEME.bg,
+                borderTopLeftRadius: 12,
+                borderTopRightRadius: 12,
+                zIndex: 1,
+              }}
+            >
+              <div style={{ fontWeight: 800, fontSize: 18 }}>
+                Top 20 Variable Pairs by R²
+              </div>
+              <button
+                onClick={() => setPairsOpen(false)}
+                style={{
+                  background: THEME.panel,
+                  color: THEME.text,
+                  border: `1px solid ${THEME.border}`,
+                  borderRadius: 8,
+                  padding: "6px 10px",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+                title="Close"
+              >
+                Close
+              </button>
+            </div>
+
+            <div style={{ padding: 16, display: "grid", gap: 12 }}>
+              <div
+                style={{
+                  padding: "10px 12px",
+                  background: THEME.panel,
+                  border: `1px solid ${THEME.border}`,
+                  borderRadius: 8,
+                  fontSize: 13,
+                  color: THEME.muted,
+                  lineHeight: 1.5,
+                }}
+              >
+                Based on the current filters and dataset, these are the strongest relationships
+                between Loyalty, Willingness to Pay, Purchase Reasons, and Imagery. Higher R²
+                values indicate a tighter linear relationship across clusters or models.
+              </div>
+
+              <div
+                style={{
+                  padding: "10px 12px",
+                  background: THEME.panel,
+                  border: `1px solid ${THEME.border}`,
+                  borderRadius: 8,
+                  overflowX: "auto",
+                }}
+              >
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: 13,
+                  }}
+                >
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: `1px solid ${THEME.border}` }}>
+                        #
+                      </th>
+                      <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: `1px solid ${THEME.border}` }}>
+                        X Axis
+                      </th>
+                      <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: `1px solid ${THEME.border}` }}>
+                        Y Axis
+                      </th>
+                      <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: `1px solid ${THEME.border}` }}>
+                        R²
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topPairs.slice(0, 20).map((p, idx) => (
+                      <tr key={`pair-row-${idx}`}>
+                        <td style={{ padding: "6px 8px", borderBottom: `1px solid ${THEME.border}`, width: 32 }}>
+                          {idx + 1}
+                        </td>
+                        <td style={{ padding: "6px 8px", borderBottom: `1px solid ${THEME.border}` }}>
+                          <div style={{ fontWeight: 600 }}>
+                            {axisTypeLabel(p.xType)}
+                          </div>
+                          <div style={{ color: THEME.muted }}>
+                            {labelForOption(p.xType, p.xKey)}
+                          </div>
+                        </td>
+                        <td style={{ padding: "6px 8px", borderBottom: `1px solid ${THEME.border}` }}>
+                          <div style={{ fontWeight: 600 }}>
+                            {axisTypeLabel(p.yType)}
+                          </div>
+                          <div style={{ color: THEME.muted }}>
+                            {labelForOption(p.yType, p.yKey)}
+                          </div>
+                        </td>
+                        <td style={{ padding: "6px 8px", borderBottom: `1px solid ${THEME.border}`, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                          {Number.isFinite(p.r2) ? p.r2.toFixed(2) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ---- Persona modal ---- */}
       {showPersona && (
         <div
@@ -3149,6 +3572,21 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           </div>
         </div>
       )}
+      {/* Signature (bottom-right, slightly inset) */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          marginTop: 8,
+          paddingRight: 10,
+        }}
+      >
+        <img
+          src={sigSrc}
+          alt="Scout Almanac Pro signature"
+          style={{ width: 50, height: "auto", opacity: 0.9 }}
+        />
+      </div>
     </div>
   );
 }

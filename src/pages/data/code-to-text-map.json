@@ -22,7 +22,7 @@
   { "code": "FIN_PU_LENGTH", "label": "Length of Loan" },
   { "code": "FIN_CREDIT", "label": "Description of Credit History" },
   { "code": "PR_MOST", "label": "Most important purchase reason" },
-  { "code": "C2S_MODEL_RESPONSE", "label": "Most Seriously Considered: Model" },
+  { "code": "C1S_MODEL_RESPONSE", "label": "Most Seriously Considered: Model" },
   { "code": "SRC_TOP1", "label": "Most Influential Source of Information" },
   { "code": "OL_MODEL_GRP", "label": "Loyalty to model" },
   {
