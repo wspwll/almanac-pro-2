@@ -215,34 +215,63 @@ function hashStr(s) {
 
 /* ---------- Memoized presentational shapes ---------- */
 const CentroidDot = React.memo(function CentroidDot({
-  cx, cy, payload, onClick, THEME,
+  cx,
+  cy,
+  payload,
+  THEME,
+  ...rest   // this includes onMouseEnter / onMouseLeave from Recharts
 }) {
   const accent = THEME.accent;
   const ringFill = `${THEME.accent}22`;
   const ringStroke = `${THEME.accent}99`;
+
   return (
-    <g transform={`translate(${cx}, ${cy})`} style={{ cursor: "pointer" }}>
-      <circle r={30} fill="transparent" onClick={() => onClick?.(payload)} />
-      <circle r={22} fill={ringFill} stroke={ringStroke} strokeWidth={3}
-              filter="url(#centroidGlow)" onClick={() => onClick?.(payload)} />
-      <circle r={6} fill={accent} onClick={() => onClick?.(payload)} />
-      <text y={-16} textAnchor="middle" fontSize={16} fontWeight={800}
-            stroke={THEME.bg} strokeWidth={3} paintOrder="stroke fill"
-            style={{ pointerEvents: "none" }}>
+    <g
+      transform={`translate(${cx}, ${cy})`}
+      style={{ cursor: "pointer" }}
+      {...rest}  // attach the events to the <g> itself
+    >
+      <circle r={30} fill="transparent" />
+      <circle
+        r={22}
+        fill={ringFill}
+        stroke={ringStroke}
+        strokeWidth={3}
+        filter="url(#centroidGlow)"
+      />
+      <circle r={6} fill={accent} />
+      <text
+        y={-16}
+        textAnchor="middle"
+        fontSize={16}
+        fontWeight={800}
+        stroke={THEME.bg}
+        strokeWidth={3}
+        paintOrder="stroke fill"
+        style={{ pointerEvents: "none" }}
+      >
         {clusterDisplayName(payload.cluster)}
       </text>
-      <text y={-16} textAnchor="middle" fontSize={16} fontWeight={800}
-            fill={THEME.text} style={{ pointerEvents: "none" }}>
+      <text
+        y={-16}
+        textAnchor="middle"
+        fontSize={16}
+        fontWeight={800}
+        fill={THEME.text}
+        style={{ pointerEvents: "none" }}
+      >
         {clusterDisplayName(payload.cluster)}
       </text>
     </g>
   );
 });
-const BigDot = React.memo(function BigDot({ cx, cy, fill }) {
-  return <circle cx={cx} cy={cy} r={10} fill={fill} />;
+
+const BigDot = React.memo(function BigDot({ cx, cy, fill, ...rest }) {
+  return <circle cx={cx} cy={cy} r={10} fill={fill} {...rest} />;
 });
-const TinyDot = React.memo(function TinyDot({ cx, cy, fill }) {
-  return <circle cx={cx} cy={cy} r={5} fill={fill} />;
+
+const TinyDot = React.memo(function TinyDot({ cx, cy, fill, ...rest }) {
+  return <circle cx={cx} cy={cy} r={5} fill={fill} {...rest} />;
 });
 
 /* ---------- Domains & animation helpers ---------- */
@@ -337,6 +366,14 @@ const PERSONA_BY_CLUSTER = {
 function getPersonaForCluster(id) {
   return PERSONA_BY_CLUSTER[id] ?? PERSONA_BY_CLUSTER.default;
 }
+
+function getClusterImageSrc(clusterId) {
+  // Matches existing Show Persona behavior: cluster 2 uses suv-cluster-2, all others suv-cluster-1
+  return clusterId === 2
+    ? "/personas/suv-cluster-2.png"
+    : "/personas/suv-cluster-1.png";
+}
+
 
 /* ---------- Field groups ---------- */
 const FIELD_GROUPS = {
@@ -1769,7 +1806,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
       byCluster.set(r.cluster, s);
     }
     return Array.from(byCluster.entries()).map(([cluster, s]) => ({
-      cluster, emb_x: s.sx / s.n, emb_y: s.sy / s.n,
+      cluster, emb_x: s.sx / s.n, emb_y: s.sy / s.n, isCentroid: true,
     }));
   }, [baseByModel]);
 
@@ -1780,8 +1817,8 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
         <h1 style={{ margin: 0, color: THEME.accent, fontSize: 38, fontWeight: 700, marginBottom: 10 }}>Customer Groups</h1>
         <div style={{ position: "relative" }}>
           <p style={{ color: THEME.muted, margin: 0, fontSize: 20, lineHeight: 1.4, paddingRight: 36 }}>
-            Explore how customer segments differ across models and clusters. Toggle datasets, select models, or filter by state to see how
-            attitudes, transaction prices, and demographics vary within your audience.
+            Explore the market's unique customer segments. Select different views to see how
+            attitudes, demographics, finances, and more vary between them.
           </p>
           <button
             onClick={() => setGuideOpen((v) => !v)}
@@ -1806,11 +1843,11 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
           }}
         >
           <div style={{ background: THEME.panel, border: `1px solid ${THEME.border}`, borderRadius: 12, padding: 16, color: THEME.text }}>
-            <div style={{ color: THEME.text, fontSize: 18, marginBottom: 20 }}>
+            <div style={{ color: THEME.text, fontSize: 18, marginBottom: 5 }}>
               This tool helps you understand <b>who Scout's customers are</b>, how these customers are <b>grouped</b>, what makes them <b>similar</b>, and what makes them <b>different</b>.
               <br /><br />
               It brings together four views— <i>high-level clusters</i>, <i>attitudes on loyalty and willingness to pay</i>, <i>location of residence</i>, and <i>transaction price</i> — plus
-              a detailed multi-group panel to explore <b>demographics</b>, <b>financing</b>, and <b>buying behavior</b>. You can explore all of this with our core SUV and Pickup competitive set,
+              a detailed multi-group panel to explore <b>demographics</b>, <b>financing</b>, <b>loyalty</b>, and <b>buying behavior</b>. You can explore all of this with our core SUV and Pickup competitive set,
               as well as our broader addressable market segments.
             </div>
           </div>
@@ -2188,6 +2225,70 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 <CartesianGrid stroke={THEME.border} strokeDasharray="4 6" />
                 <XAxis type="number" dataKey="emb_x" domain={animX} tickFormatter={() => ""} tickLine={false} axisLine={false} tickMargin={0} />
                 <YAxis type="number" dataKey="emb_y" domain={animY} tickFormatter={() => ""} tickLine={false} axisLine={false} tickMargin={0} />
+                {/* Cluster hover tooltip (name + image) */}
+                <Tooltip
+                  isAnimationActive={false}
+                  cursor={{ stroke: THEME.border }}
+                  wrapperStyle={{
+                    background: THEME.bg,
+                    border: `1px solid ${THEME.border}`,
+                    borderRadius: 8,
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
+                    color: THEME.text,
+                    padding: 0,
+                  }}
+                  content={({ active, payload }) => {
+                    if (!active || !payload || !payload.length || zoomCluster != null) {
+                      return null;
+                    }
+
+                    // Find the centroid item among all hovered series
+                    const centroidEntry = payload.find(
+                      (entry) => entry?.payload?.isCentroid
+                    );
+                    if (!centroidEntry) return null;
+
+                    const point = centroidEntry.payload;
+                    const clusterId = Number(point.cluster);
+                    if (!Number.isFinite(clusterId)) return null;
+
+                    const name = clusterDisplayName(clusterId);
+                    const imgSrc = getClusterImageSrc(clusterId);
+
+                    return (
+                      <div
+                        style={{
+                          padding: 10,
+                          borderRadius: 8,
+                          background: THEME.bg,
+                          color: THEME.text,
+                          maxWidth: 220,
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, marginBottom: 6 }}>{name}</div>
+                        <div
+                          style={{
+                            width: "100%",
+                            borderRadius: 6,
+                            overflow: "hidden",
+                            border: `1px solid ${THEME.border}`,
+                          }}
+                        >
+                          <img
+                            src={imgSrc}
+                            alt={`Cluster ${clusterId} persona visual`}
+                            style={{
+                              display: "block",
+                              width: "100%",
+                              height: "auto",
+                              objectFit: "cover",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  }}
+                />
                 {series.map((s) => {
                   const k = s.key;
                   const data = s.data;
@@ -2218,8 +2319,9 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                       <CentroidDot
                         {...props}
                         THEME={THEME}
-                        onClick={(p) => {
-                          if (Number.isFinite(p?.cluster)) setZoomCluster(p.cluster);
+                        onClick={() => {
+                          const id = Number(props.payload.cluster);
+                          if (Number.isFinite(id)) setZoomCluster(id);
                         }}
                       />
                     )}
@@ -2489,20 +2591,55 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                     if (!active || !payload || !payload.length) return null;
                     const p = payload[0]?.payload;
                     if (!p) return null;
-                    const isNumericKey = Number.isFinite(Number(p.key));
-                    const title = isNumericKey ? `C${p.key}` : p.name || String(p.key);
-                    const fillColor = colorMode === "model" ? (modelColors[String(p.key)] || THEME.accent) : clusterColor(Number(p.key));
+
+                    const isCluster = colorMode === "cluster" && Number.isFinite(Number(p.key));
+                    const rawKey = isCluster ? Number(p.key) : String(p.key);
+
+                    const title = isCluster
+                      ? clusterDisplayName(rawKey)         // e.g. "Comfort Keepers"
+                      : getModelDisplayName(rawKey);      // e.g. "Toyota 4Runner"
+
+                    const fillColor = isCluster
+                      ? clusterColor(rawKey)
+                      : (modelColors[String(rawKey)] || THEME.accent);
+
                     return (
-                      <div style={{ background: THEME.bg, borderRadius: 8, color: THEME.text, padding: "10px 12px", border: `1px solid ${THEME.border}` }}>
-                        <div style={{ fontWeight: 800, marginBottom: 6, color: fillColor }}>{title}</div>
+                      <div
+                        style={{
+                          background: THEME.bg,
+                          borderRadius: 8,
+                          color: THEME.text,
+                          padding: "10px 12px",
+                          border: `1px solid ${THEME.border}`,
+                        }}
+                      >
+                        <div style={{ fontWeight: 800, marginBottom: 6, color: fillColor }}>
+                          {title}
+                        </div>
                         <div style={{ display: "grid", rowGap: 2 }}>
-                          <div><span style={{ opacity: 0.75 }}>Loyalty:</span> <span style={{ fontWeight: 600 }}>{Number.isFinite(p.x) ? `${p.x.toFixed(1)}%` : "—"}</span></div>
-                          <div><span style={{ opacity: 0.75 }}>WTP:</span> <span style={{ fontWeight: 600 }}>{Number.isFinite(p.y) ? `${p.y.toFixed(1)}%` : "—"}</span></div>
-                          <div><span style={{ opacity: 0.75 }}>Sample:</span> <span style={{ fontWeight: 600, color: THEME.text }}>{Number.isFinite(p.n) ? p.n.toLocaleString() : "—"}</span></div>
+                          <div>
+                            <span style={{ opacity: 0.75 }}>Loyalty:</span>{" "}
+                            <span style={{ fontWeight: 600 }}>
+                              {Number.isFinite(p.x) ? `${p.x.toFixed(1)}%` : "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span style={{ opacity: 0.75 }}>WTP:</span>{" "}
+                            <span style={{ fontWeight: 600 }}>
+                              {Number.isFinite(p.y) ? `${p.y.toFixed(1)}%` : "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span style={{ opacity: 0.75 }}>Sample:</span>{" "}
+                            <span style={{ fontWeight: 600, color: THEME.text }}>
+                              {Number.isFinite(p.n) ? p.n.toLocaleString() : "—"}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     );
                   }}
+
                 />
                 <Scatter data={pointsA} name="" shape={<BigDot />}>
                   {pointsA.map((pt, i) => (
@@ -2700,14 +2837,52 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                     if (!active || !payload || !payload.length) return null;
                     const p = payload[0]?.payload;
                     if (!p) return null;
-                    const fillColor = p.color || (colorMode === "cluster" ? clusterColor(Number(p.key)) : (modelColors[String(p.key)] || THEME.accent));
+
+                    const isCluster = colorMode === "cluster" && Number.isFinite(Number(p.key));
+                    const rawKey = isCluster ? Number(p.key) : String(p.key);
+
+                    const label = isCluster
+                      ? clusterDisplayName(rawKey)
+                      : getModelDisplayName(rawKey);
+
+                    const fillColor =
+                      p.color ||
+                      (isCluster
+                        ? clusterColor(rawKey)
+                        : (modelColors[String(rawKey)] || THEME.accent));
+
                     return (
-                      <div style={{ background: THEME.bg, borderRadius: 8, color: THEME.text, padding: "10px 12px", border: `1px solid ${THEME.border}` }}>
-                        <div style={{ fontWeight: 800, marginBottom: 6, color: fillColor }}>{p.name}</div>
+                      <div
+                        style={{
+                          background: THEME.bg,
+                          borderRadius: 8,
+                          color: THEME.text,
+                          padding: "10px 12px",
+                          border: `1px solid ${THEME.border}`,
+                        }}
+                      >
+                        <div style={{ fontWeight: 800, marginBottom: 6, color: fillColor }}>
+                          {label}
+                        </div>
                         <div style={{ display: "grid", rowGap: 2 }}>
-                          <div><span style={{ opacity: 0.75 }}>Selected:</span> <span style={{ fontWeight: 600 }}>{Number.isFinite(p.x) ? `${p.x.toFixed(1)}%` : "—"}</span></div>
-                          <div><span style={{ opacity: 0.75 }}>Agree:</span> <span style={{ fontWeight: 600 }}>{Number.isFinite(p.y) ? `${p.y.toFixed(1)}%` : "—"}</span></div>
-                          <div><span style={{ opacity: 0.75 }}>Sample:</span> <span style={{ fontWeight: 600, color: THEME.text }}>{Number.isFinite(p.n) ? p.n.toLocaleString() : "—"}</span></div>
+                          <div>
+                            <span style={{ opacity: 0.75 }}>Selected:</span>{" "}
+                            <span style={{ fontWeight: 600 }}>
+                              {Number.isFinite(p.x) ? `${p.x.toFixed(1)}%` : "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span style={{ opacity: 0.75 }}>Agree:</span>{" "}
+                            <span style={{ fontWeight: 600 }}>
+                              {Number.isFinite(p.y) ? `${p.y.toFixed(1)}%` : "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span style={{ opacity: 0.75 }}>Sample:</span>{" "}
+                            <span style={{ fontWeight: 600, color: THEME.text }}>
+                              {Number.isFinite(p.n) ? p.n.toLocaleString() : "—"}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     );
@@ -2883,20 +3058,39 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                           <div style={{ background: THEME.bg, border: `1px solid ${THEME.border}`, borderRadius: 8, padding: "10px 12px", color: THEME.text, boxShadow: "0 4px 12px rgba(0,0,0,0.20)" }}>
                             <div style={{ fontWeight: 700, marginBottom: 6 }}>{label}</div>
                             {unique.map((entry, i) => {
+                              const rawName = entry?.name ?? "";
+                              const isCluster = colorMode === "cluster" && /^C\d+$/i.test(rawName);
+                              const key = isCluster ? Number(rawName.slice(1)) : String(rawName);
+
                               let seriesColor = entry?.stroke || entry?.color;
                               if (!seriesColor) {
-                                const rawKey = entry?.name ?? "";
-                                const isCluster = /^C\d+$/i.test(rawKey) && colorMode === "cluster";
-                                const key = isCluster ? Number(rawKey.slice(1)) : String(rawKey);
-                                seriesColor = colorMode === "cluster" ? clusterColor(Number(key)) : (modelColors[String(key)] || THEME.accent);
+                                seriesColor = isCluster
+                                  ? clusterColor(key)
+                                  : (modelColors[String(key)] || THEME.accent);
                               }
+
+                              const labelText = isCluster
+                                ? clusterDisplayName(key)       // nice cluster label
+                                : getModelDisplayName(key);    // "Toyota 4Runner"
+
                               const pct = Number(entry?.value);
                               const count = entry?.payload?.count ?? 0;
+
                               return (
-                                <div key={i} style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
-                                  <span style={{ color: seriesColor, fontWeight: 700 }}>{entry.name}:</span>
-                                  <span style={{ fontWeight: 500 }}>{Number.isFinite(pct) ? pct.toFixed(1) : "—"}%</span>
-                                  <span style={{ color: THEME.muted }}> ({count.toLocaleString?.() ?? "—"})</span>
+                                <div
+                                  key={i}
+                                  style={{ display: "flex", gap: 6, alignItems: "baseline" }}
+                                >
+                                  <span style={{ color: seriesColor, fontWeight: 700 }}>
+                                    {labelText}:
+                                  </span>
+                                  <span style={{ fontWeight: 500 }}>
+                                    {Number.isFinite(pct) ? pct.toFixed(1) : "—"}%
+                                  </span>
+                                  <span style={{ color: THEME.muted }}>
+                                    {" "}
+                                    ({count.toLocaleString?.() ?? "—"})
+                                  </span>
                                 </div>
                               );
                             })}
@@ -3058,9 +3252,9 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 {detailsSource === "clusters"
                   ? "Clustering UMAP Scatter Plot"
                   : detailsSource === "attitudes"
-                  ? `${axis(c1xType)} · ${axis(c1yType)}`
+                  ? "Loyalty · Willingness to Pay · Purchase Reason · Imagery"
                   : detailsSource === "imagery"
-                  ? `${axis(c2xType)} · ${axis(c2yType)}`
+                  ? "Loyalty · Willingness to Pay · Purchase Reason · Imagery"
                   : detailsSource === "price"
                   ? "Transaction Price Distribution"
                   : detailsSource === "map"
@@ -3109,8 +3303,8 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 >
                   <div style={{ fontSize: 14, opacity: 0.9, lineHeight: 1.6 }}>
                     This chart compares each cluster or model’s share of customers who agree with selected
-                    <i> loyalty statements </i> against their agreement with <i> willingness-to-pay factors.</i> Each dot represents a group’s percentage of respondents showing positive sentiment on both dimensions.
-                    Use the dropdowns on the X and Y axes to explore how loyalty and price sensitivity interact
+                    <i> loyalty statements </i>, <i> willingness-to-pay factors</i>, <i> most important purchase reasons</i>, and <i>vehicle imagery statements</i> against each other. Each dot represents a group’s percentage of respondents showing positive sentiment on both dimensions.
+                    Use the dropdowns on the X and Y axes to explore how these different groups correlate
                     across customer segments.
                   </div>
                 </div>
@@ -3126,10 +3320,10 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                   }}
                 >
                   <div style={{ fontSize: 14, opacity: 0.9, lineHeight: 1.6 }}>
-                    Each dot shows a cluster or model’s share of respondents who selected the chosen
-                    <i> Most Important Purchase Reason </i> (X-axis) versus the share who agree with the
-                    selected <i> Imagery </i> statement (Y-axis). Use the dropdowns on the X and Y axes to explore relationships between
-                    why customers purchase their vehicle and how they view it.
+                    This chart (also) compares each cluster or model’s share of customers who agree with selected
+                    <i> loyalty statements </i>, <i> willingness-to-pay factors</i>, <i> most important purchase reasons</i>, and <i>vehicle imagery statements</i> against each other. Each dot represents a group’s percentage of respondents showing positive sentiment on both dimensions.
+                    Use the dropdowns on the X and Y axes to explore how these different groups correlate
+                    across customer segments.
                   </div>
                 </div>
               )}
@@ -3161,8 +3355,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 >
                   <div style={{ fontSize: 14, opacity: 0.9, lineHeight: 1.6 }}>
                     This map highlights the geographic distribution of respondents by state. Brighter shades
-                    represent states with a higher share of respondents in the current selection. Click on
-                    any state to filter other panels to residents from that state, or use the Clear button to reset.
+                    represent states with a higher share of respondents in the current selection.
                   </div>
                 </div>
               )}
@@ -3408,11 +3601,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                         }}
                       >
                         <img
-                          src={
-                            zoomCluster === 2
-                              ? "/personas/suv-cluster-2.png"
-                              : "/personas/suv-cluster-1.png"
-                          }
+                          src={getClusterImageSrc(zoomCluster)}
                           alt={`Cluster ${zoomCluster} persona visual`}
                           style={{
                             width: "100%",
