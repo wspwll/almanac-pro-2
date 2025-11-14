@@ -1847,8 +1847,11 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
               This tool helps you understand <b>who Scout's customers are</b>, how these customers are <b>grouped</b>, what makes them <b>similar</b>, and what makes them <b>different</b>.
               <br /><br />
               It brings together four views— <i>high-level clusters</i>, <i>attitudes on loyalty and willingness to pay</i>, <i>location of residence</i>, and <i>transaction price</i> — plus
-              a detailed multi-group panel to explore <b>demographics</b>, <b>financing</b>, <b>loyalty</b>, and <b>buying behavior</b>. You can explore all of this with our core SUV and Pickup competitive set,
+              a detailed multi-group panel to explore demographics, financing, loyalty, and buying behavior. You can explore all of this with our core SUV and Pickup competitive set,
               as well as our broader addressable market segments.
+              <br></br>
+              <br></br>
+              This tool was trained on <b>124,438,650</b> data points across <b>95,576</b> survey respondents in the 2025 Ipsos <i>New Vehicle Customer Survey</i>.
             </div>
           </div>
         </div>
@@ -2180,7 +2183,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
         <div
           style={{
             flex: 1, background: THEME.panel, border: `1px solid ${THEME.border}`,
-            borderRadius: 12, height: "100%", boxSizing: "border-box", position: "relative",
+            borderRadius: 12, height: "100%", boxSizing: "border-box", position: "relative", zIndex: 3,
           }}
         >
           <div style={{ position: "absolute", top: 20, left: 0, width: "100%", textAlign: "center", fontWeight: 700, fontSize: 24, color: THEME.text, pointerEvents: "none" }}>
@@ -2236,6 +2239,8 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                     boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
                     color: THEME.text,
                     padding: 0,
+                    zIndex: 9999,
+                    pointerEvents: "none",
                   }}
                   content={({ active, payload }) => {
                     if (!active || !payload || !payload.length || zoomCluster != null) {
@@ -2738,18 +2743,6 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
             borderRadius: 12, padding: 12, minHeight: "400px", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 8,
           }}
         >
-          <button
-            onClick={() => { setDetailsSource("imagery"); setDetailsOpen(true); }}
-            title="Open detailed view"
-            style={{
-              position: "absolute", top: 10, left: 10, zIndex: 2,
-              background: THEME.panel, color: THEME.text, border: `1px solid ${THEME.border}`,
-              borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-            }}
-          >
-            Details
-          </button>
           {/* Lock toggle — hidden but kept for future use
           <button
             onClick={() => setAttLocked((v) => !v)}
@@ -3302,28 +3295,23 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                   }}
                 >
                   <div style={{ fontSize: 14, opacity: 0.9, lineHeight: 1.6 }}>
-                    This chart compares each cluster or model’s share of customers who agree with selected
-                    <i> loyalty statements </i>, <i> willingness-to-pay factors</i>, <i> most important purchase reasons</i>, and <i>vehicle imagery statements</i> against each other. Each dot represents a group’s percentage of respondents showing positive sentiment on both dimensions.
+                    These two scatter plots compare each cluster or model’s share of customers who agree with selected 
+                    <i> loyalty statement</i>, <i>willingness-to-pay factor</i>, <i>most important purchase reason</i>, and <i>vehicle imagery statement</i> against each other. Each dot represents a group’s percentage of respondents showing positive sentiment on both dimensions.
                     Use the dropdowns on the X and Y axes to explore how these different groups correlate
                     across customer segments.
-                  </div>
-                </div>
-              )}
-
-              {detailsSource === "imagery" && (
-                <div
-                  style={{
-                    padding: "10px 12px",
-                    background: THEME.panel,
-                    border: `1px solid ${THEME.border}`,
-                    borderRadius: 8,
-                  }}
-                >
-                  <div style={{ fontSize: 14, opacity: 0.9, lineHeight: 1.6 }}>
-                    This chart (also) compares each cluster or model’s share of customers who agree with selected
-                    <i> loyalty statements </i>, <i> willingness-to-pay factors</i>, <i> most important purchase reasons</i>, and <i>vehicle imagery statements</i> against each other. Each dot represents a group’s percentage of respondents showing positive sentiment on both dimensions.
-                    Use the dropdowns on the X and Y axes to explore how these different groups correlate
-                    across customer segments.
+                    <br></br>
+                    <br></br>
+                    You can click the arrow icon on the top right corner of the chart to display the trend line and associated <i>R-squared</i> value.
+                    R-squared tells you <b>how well one variable helps predict the other:</b>
+                    <br></br>
+                    <br></br>
+                    R-squared = 0 → “These two things have nothing to do with each other.”<br></br>
+                    R-squared = 1 → “One perfectly predicts the other.”<br></br>
+                    R-squared = 0.50 → “About half of the pattern in one thing can be explained by the other.”
+                    <br></br>
+                    <br></br>
+                    You can have the tool automatically tell you which variable pairs have the highest R-squared value and are therefore show the strongest correlation
+                     by clicking the <i>Compute Optimal Pairs</i> button above. R-squared values at or above 0.9 signify a strong relationship.
                   </div>
                 </div>
               )}
