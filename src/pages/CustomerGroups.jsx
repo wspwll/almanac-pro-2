@@ -65,12 +65,12 @@ const clusterColor = (k) =>
 /* ---------- Display names for clusters (UI only) ---------- */
 const CLUSTER_DISPLAY_NAMES = {
   1: "Comfort Keepers",
-  2: "Savvy Thrill Seekers",
+  2: "Luxe Trailsetters",
   3: "EV-Tech Enthusiasts",
-  4: "Everyday Pathfinders",
+  4: "Reliability Seekers",
 };
-const clusterDisplayName = (id) => CLUSTER_DISPLAY_NAMES[id] || `C${id}`;
-
+const clusterDisplayName = (id) =>
+  CLUSTER_DISPLAY_NAMES[id] || `C${id}`;
 
 const MODEL_DISPLAY_MAP = new Map(
   (modelDisplayEntries || []).map((entry) => [
@@ -339,22 +339,30 @@ const PERSONA_BY_CLUSTER = {
   },
 
   1: {
-    title: "The Everyday Explorer",
+    title: "Comfort Keepers",
     summary: (
       <>
-        <strong>Loyalty, capability, and value.</strong> This group values freedom, comfort, and practicality and want
-         vehicles that fit an active, hands-on lifestyle. Mostly men in 
-        their mid-50s to mid-70s living in suburban or small-town settings, they are often semi-retired or in 
-        mid-management roles. They’re loyal to brands that align with their values and prioritize durability, 
-        practicality, and value for money, even if the model is a little more expensive.
+        Middle-aged, predominantly middle-class drivers who do their homework online, care a lot about value and dependability, 
+        yet still want their SUV to be fun to drive. They’re comfortable with newer tech (including EVs) but are not driven by prestige. 
+        Instead, they balance enjoyment with pragmatism and prioritize long‑term reliability and an overall good deal on their purchase.
       </>
     ),
   },
 
   2: {
-    title: "The Discerning Driver",
+    title: "Luxe Trailsetters",
     summary:
       "Affluent, style-driven suburban drivers. They seek luxury, performance, and safety over loyalty to any brand. They prefer European and Asian vehicles with AWD, strong handling, and refined design, valuing prestige and reliability as symbols of success. Confident and discerning, they’re willing to spend more for features that deliver comfort, power, and peace of mind.",
+  },
+  3: {
+    title: "EV-Tech Enthusiasts",
+    summary:
+      "Younger middle-aged, affluent, highly educated, tech‑centric individuals who deliberately choose BEVs for fuel type and advanced tech. They’re brand‑flexible, willing to pay for innovation and comfort, and heavily influenced by peers and digital content.",
+  },
+  4: {
+    title: "Reliability Seekers",
+    summary:
+      "Older, well-off, suburban/near‑rural married households who lean on past experience and perceived quality when they choose SUVs. They favor familiar brands and models and rely heavily on quality, reliability, and dealership relationships rather than chasing the very latest tech or the absolute lowest price.",
   },
   default: {
     title: "Cluster Persona",
@@ -368,10 +376,18 @@ function getPersonaForCluster(id) {
 }
 
 function getClusterImageSrc(clusterId) {
-  // Matches existing Show Persona behavior: cluster 2 uses suv-cluster-2, all others suv-cluster-1
-  return clusterId === 2
-    ? "/personas/suv-cluster-2.png"
-    : "/personas/suv-cluster-1.png";
+  switch (clusterId) {
+    case 1:
+      return "/personas/core-suv-c1.png";
+    case 2:
+      return "/personas/core-suv-c2.png";
+    case 3:
+      return "/personas/core-suv-c3.png";
+    case 4:
+      return "/personas/core-suv-c4.png";
+    default:
+      return "/personas/core-suv-c1.png"; // fallback
+  }
 }
 
 
@@ -946,6 +962,12 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
 
   const allModels = useMemo(() => Array.from(new Set(rows.map((r) => r.model))).sort(), [rows]);
 
+  // Models that actually appear in the current cluster selection (or all clusters if none selected)
+  const clusterModels = useMemo(() => {
+    const source = zoomCluster == null ? rows : rows.filter((r) => r.cluster === zoomCluster);
+    return Array.from(new Set(source.map((r) => r.model))).sort();
+  }, [rows, zoomCluster]);
+
   const modelColors = useMemo(() => {
     const map = {};
     const total = allModels.length || 1;
@@ -958,14 +980,18 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
     return map;
   }, [allModels]);
 
-  useEffect(() => setSelectedModels(allModels), [allModels]);
+  useEffect(() => setSelectedModels(clusterModels), [clusterModels]);
   useEffect(() => { setZoomCluster(null); setCenterT(0); }, [group]);
 
   const toggleModel = useCallback(
     (m) => setSelectedModels((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m])),
     []
   );
-  const selectAll = useCallback(() => setSelectedModels(allModels), [allModels]);
+  const selectAll = useCallback(
+    () => setSelectedModels(clusterModels),
+    [clusterModels]
+  );
+
   const clearAll = useCallback(() => setSelectedModels([]), []);
 
   const demoLookups = useMemo(() => {
@@ -1939,7 +1965,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 marginBottom: 10,
               }}
             >
-              {allModels.map((m) => {
+              {clusterModels.map((m) => {
                 const active = selectedModels.includes(m);
                 const baseColor = modelColors[m] || THEME.accent;
 
@@ -1994,7 +2020,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                 paddingBottom: 10,
               }}
             >
-              {allModels.map((m) => {
+              {clusterModels.map((m) => {
                 const active = selectedModels.includes(m);
                 const baseColor = modelColors[m] || THEME.accent;
 
@@ -3542,7 +3568,7 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                     datasetMode === "CORE"
                       ? (group === "SUV" ? "SUV" : "Pickup")
                       : (group === "LargePickup" ? "Large Pickups" : "Mid SUVs");
-                  return `${persona.title} — ${groupLabel}`;
+                  return `${persona.title}`;
                 })()}
               </div>
               <button
@@ -3595,6 +3621,8 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                             width: "100%",
                             height: "100%",
                             objectFit: "cover",
+                            // Default center for all clusters; nudge view right for Luxe Trailsetters
+                            objectPosition: zoomCluster === 2 ? "15% center" : "50% center",
                           }}
                         />
                       </div>
@@ -3609,39 +3637,158 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                           padding: 12,
                         }}
                       >
-                        <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 26, marginLeft: 8, }}>Group Details</div>
                         <div
                           style={{
-                            display: "grid",
-                            gridTemplateColumns: "80px 1fr",
-                            rowGap: 8,
-                            columnGap: 8,
-                            alignItems: "start",
-                            lineHeight: 2,
+                            fontWeight: 700,
+                            fontSize: 18,
+                            marginBottom: 8,
+                            marginLeft: 8,
                           }}
                         >
-                          <div style={{ color: THEME.muted, fontSize: 14, fontWeight: 600, marginLeft: 8, }}>Gender:</div>
-                          <div style={{ color: THEME.text, fontSize: 14, fontWeight: 700 }}>70% male / 30% female</div>
-
-                          <div style={{ color: THEME.muted, fontSize: 14, fontWeight: 600, marginLeft: 8, }}>Age:</div>
-                          <div style={{ color: THEME.text, fontSize: 14, fontWeight: 700 }}>55-75 years old</div>
-
-                          <div style={{ color: THEME.muted, fontSize: 14, fontWeight: 600, marginLeft: 8, }}>Location:</div>
-                          <div style={{ color: THEME.text, fontSize: 14, fontWeight: 700 }}>Suburban or small town</div>
-
-                          <div style={{ color: THEME.muted, fontSize: 14, fontWeight: 600, marginLeft: 8, }}>Occupation:</div>
-                          <div style={{ color: THEME.text, fontSize: 14, fontWeight: 700 }}>Semi-retired or mid-level manager</div>
-
-                          <div style={{ color: THEME.muted, fontSize: 14, fontWeight: 600, marginLeft: 8, }}>Income:</div>
-                          <div style={{ color: THEME.text, fontSize: 14, fontWeight: 700 }}>$150k - $250k</div>
-
-                          <div style={{ color: THEME.muted, fontSize: 14, fontWeight: 600, marginLeft: 8, }}>Hobbies:</div>
-                          <div style={{ color: THEME.text, fontSize: 14, fontWeight: 700 }}>Leisure, physical, and outdoors</div>
+                          Group Details
                         </div>
+                        <div
+                          style={{
+                            height: 1,
+                            background: THEME.border,
+                            opacity: 0.5,
+                            margin: "4px 8px 12px 8px",
+                          }}
+                        />
+                        {zoomCluster === 1 ? (
+                          <div style={{ fontSize: 14, lineHeight: 1.5, marginLeft: 8 }}>
+                            <div style={{ fontSize: 12, marginBottom: 10 }}>
+                              <i><strong>~8%</strong> of total customer base</i>
+                            </div>
+
+                            <div style={{ marginBottom: 4 }}>
+                              <strong>Residence:</strong> Primarily suburban or small town
+                            </div>
+
+                            <div style={{ marginBottom: 14 }}>
+                              <strong>Occupation:</strong> Retired or mid-level management
+                            </div>
+
+                            <div style={{ marginTop: 8, marginBottom: 4, fontWeight: 700 }}>
+                              Top purchase drivers
+                            </div>
+
+                            <div style={{ marginLeft: 8, marginBottom: 8, lineHeight: 1.5 }}>
+                              <div>#1: Fun to drive</div>
+                              <div>#2: Overall quality of vehicle</div>
+                              <div>#3: Price or deal offered</div>
+                            </div>
+
+                            <div style={{ marginTop: 14, fontStyle: "italic" }}>
+                              <div>“I want the most value for the money.”</div>
+                              <div>“I will pay to avoid breakdowns.”</div>
+                              <div>“I want to balance enjoyment with long-term cost.”</div>
+                            </div>
+                          </div>
+                        ) : zoomCluster === 2 ? (
+                          <div style={{ fontSize: 14, lineHeight: 1.5, marginLeft: 8 }}>
+
+                            <div style={{ fontSize: 12, marginBottom: 10 }}>
+                              <i><strong>~16%</strong> of total customer base</i>
+                            </div>
+
+                            <div style={{ marginBottom: 4 }}>
+                              <strong>Residence:</strong> Primarily suburban or small town
+                            </div>
+
+                            <div style={{ marginBottom: 14 }}>
+                              <strong>Occupation:</strong> Retired or mid-level management
+                            </div>
+
+                            <div style={{ marginTop: 8, marginBottom: 4, fontWeight: 700 }}>
+                              Top purchase drivers
+                            </div>
+
+                            <div style={{ marginLeft: 8, marginBottom: 8, lineHeight: 1.5 }}>
+                              <div>#1: Overall exterior styling</div>
+                              <div>#2: Overall quality of vehicle</div>
+                              <div>#3: Fun to drive</div>
+                            </div>
+
+                            <div style={{ marginTop: 14, fontStyle: "italic" }}>
+                              <div>“I value overall exterior styling.”</div>
+                              <div>“I want a vehicle that fits my lifestyle and hobbies.”</div>
+                              <div>“I want a vehicle that is fun to drive.”</div>
+                            </div>
+
+                          </div>
+                          ) : zoomCluster === 3 ? (
+                            <div style={{ fontSize: 14, lineHeight: 1.5, marginLeft: 8 }}>
+
+                              <div style={{ fontSize: 12, marginBottom: 10 }}>
+                                <i><strong>~5%</strong> of total customer base</i>
+                              </div>
+
+                              <div style={{ marginBottom: 4 }}>
+                                <strong>Residence:</strong> Primarily suburban
+                              </div>
+
+                              <div style={{ marginBottom: 14 }}>
+                                <strong>Occupation:</strong> Retired or senior executive
+                              </div>
+
+                              <div style={{ marginTop: 8, marginBottom: 4, fontWeight: 700 }}>
+                                Top purchase drivers
+                              </div>
+
+                              <div style={{ marginLeft: 8, marginBottom: 8, lineHeight: 1.5 }}>
+                                <div>#1: Fuel type</div>
+                                <div>#2: Overall cost of ownership</div>
+                                <div>#3: Technical innovations</div>
+                              </div>
+
+                              <div style={{ marginTop: 14, fontStyle: "italic" }}>
+                                <div>“I will pay more for features that take some work out of driving.”</div>
+                                <div>“I want a vehicle with the latest technology.”</div>
+                                <div>“Fuel type was one of the most important purchase factors for me.”</div>
+                              </div>
+
+                            </div>
+                            ) : zoomCluster === 4 ? (
+                              <div style={{ fontSize: 14, lineHeight: 1.5, marginLeft: 8 }}>
+
+                                <div style={{ fontSize: 12, marginBottom: 10 }}>
+                                  <i><strong>~71%</strong> of total customer base</i>
+                                </div>
+
+                                <div style={{ marginBottom: 4 }}>
+                                  <strong>Residence:</strong> Primarily suburban
+                                </div>
+
+                                <div style={{ marginBottom: 14 }}>
+                                  <strong>Occupation:</strong> Primarily retired
+                                </div>
+
+                                <div style={{ marginTop: 8, marginBottom: 4, fontWeight: 700 }}>
+                                  Top purchase drivers
+                                </div>
+
+                                <div style={{ marginLeft: 8, marginBottom: 8, lineHeight: 1.5 }}>
+                                  <div>#1: Overall quality of vehicle</div>
+                                  <div>#2: Previous experience with the model</div>
+                                  <div>#3: Overall exterior styling</div>
+                                </div>
+
+                                <div style={{ marginTop: 14, fontStyle: "italic" }}>
+                                  <div>“I value a reliable vehicle and will pay to avoid breakdowns.”</div>
+                                  <div>“I rely on my past experience with the model.”</div>
+                                  <div>“I prefer to stick with brands I know and trust.”</div>
+                                </div>
+
+                              </div>
+                        ) : (
+                          <div style={{ fontSize: 14, opacity: 0.9, marginLeft: 8 }}>
+                            More detailed group insights coming soon for this cluster.
+                          </div>
+                        )}
+
                       </div>
-                    </div>
-
-
+                      </div>
 
                     {/* Donut: % of respondents by current model within this cluster */}
                     <div
@@ -3662,7 +3809,17 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                         </div>
                       ) : (
                         (() => {
-                          const sortedData = [...clusterModelShare.data].sort((a, b) => b.value - a.value);
+                          // Base sorting
+                          let sortedData = [...clusterModelShare.data].sort(
+                            (a, b) => b.value - a.value
+                          );
+
+                          // 📌 For Cluster 4 ONLY → show top 7 and REMOVE "Other"
+                          if (zoomCluster === 4) {
+                            const mainModelsOnly = sortedData.filter((d) => d.name !== "Other");
+                            sortedData = mainModelsOnly.slice(0, 7);
+                          }
+
                           return (
                             <div style={{ width: "100%", height: 260 }}>
                               <ResponsiveContainer>
@@ -3671,19 +3828,22 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                                     data={sortedData}
                                     dataKey="value"
                                     nameKey="name"
-                                    innerRadius={64}
+                                    innerRadius={55}
                                     outerRadius={100}
                                     stroke={THEME.bg}
                                     strokeWidth={1}
-                                    startAngle={90}      /* 12 o’clock */
-                                    endAngle={-270}      /* clockwise */
+                                    startAngle={90}
+                                    endAngle={-270}
                                     labelLine={true}
-                                    /* OUTSIDE label: vehicle name only */
-                                    label={({ name, cx, cy, midAngle, outerRadius }) => {
+                                    label={({ name, value, cx, cy, midAngle, outerRadius }) => {
+                                      const displayName =
+                                        name === "Other" ? "Other" : getModelDisplayName(name);
+
                                       const RAD = Math.PI / 180;
-                                      const r = outerRadius + 20; // push name outside the slice
+                                      const r = outerRadius + 20;
                                       const x = cx + r * Math.cos(-midAngle * RAD);
                                       const y = cy + r * Math.sin(-midAngle * RAD);
+
                                       return (
                                         <text
                                           x={x}
@@ -3692,18 +3852,19 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                                           dominantBaseline="central"
                                           style={{ fill: THEME.text, fontSize: 12, fontWeight: 600 }}
                                         >
-                                          {name}
+                                          {displayName}
                                         </text>
                                       );
                                     }}
                                   >
                                     {sortedData.map((d, i) => {
                                       const color =
-                                        d.name === "Other" ? THEME.muted : (modelColors[d.name] || THEME.accent);
+                                        d.name === "Other"
+                                          ? THEME.muted
+                                          : modelColors[d.name] || THEME.accent;
                                       return <Cell key={`slice-${d.name}-${i}`} fill={color} />;
                                     })}
 
-                                    {/* INSIDE label: rounded percentage */}
                                     <LabelList
                                       dataKey="value"
                                       position="inside"
@@ -3711,7 +3872,6 @@ export default function CustomerGroups({ COLORS: THEME, useStyles }) {
                                       style={{ fontSize: 11, fontWeight: 700, fill: "#ffffff" }}
                                     />
                                   </Pie>
-
 
                                   {/* Center label */}
                                   <g>
